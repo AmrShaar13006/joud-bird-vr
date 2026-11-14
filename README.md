@@ -4,7 +4,7 @@ A seated WebXR arcade game for Meta Quest 3, played in Quest Browser. Players fl
 through gaps with the controller trigger. Built for the DSC booth at "طلعتنا اليوم"
 (Al Yamamah University × جمعية جود). **Live Tue 17 Nov 2026, 16:00.**
 
-Stack: Meta IWSDK 1.0 (Three.js + WebXR), TypeScript, Vite, Vitest. Hosted on Vercel.
+Stack: Meta IWSDK 1.1.0 (Three.js + WebXR), TypeScript, Vite, Vitest. Hosted on Vercel.
 
 ## Repo map
 | Path | What |
