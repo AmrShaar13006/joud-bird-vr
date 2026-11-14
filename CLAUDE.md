@@ -8,12 +8,13 @@ Read before any task: `docs/spec.md` (what to build), `docs/plan.md` (deadlines)
 `docs/testing.md` (how to prove it), `docs/joud-brief.json` (the character, locked).
 
 ## Architecture (do not change)
-- Built on IWSDK 1.0. Look up IWSDK APIs with the project's IWSDK MCP/RAG tools. Never guess an API.
+- Built on IWSDK 1.1.0 (super-three 0.185.0). Look up IWSDK APIs with the project's IWSDK MCP/RAG tools. Never guess an API.
 - All game logic lives in `src/core/`: plain TypeScript with no imports from `@iwsdk/*`, `three`
   or the DOM. The IWSDK layer (`src/systems`, `src/components`, `src/scene`) only reads core state
   and writes it to scene objects.
-- The same `src/core` must also run under a plain Three.js shell (`src/fallback/`, three@0.186.0)
-  so we can switch if IWSDK misbehaves on the headset.
+- The same `src/core` must also run under a plain Three.js shell (`src/fallback/`)
+  so we can switch if IWSDK misbehaves on the headset. The fallback uses the same super-three
+  0.185.0 that IWSDK pins, so only one copy of Three.js ships.
 - Input reaches the core only as four commands through the InputBus: `flap`, `start`, `restart`,
   `pause`.
 - Fixed-step simulation at 1/120 s, clamped after hitches.
@@ -65,7 +66,7 @@ ours keeps game logic in `src/core` and builds the play window in code.
   emulator device), not `vite.config.ts`. Editing it restarts Vite. `src/index.ts` passes
   `virtual:iwsdk-project` whole to `World.create()`; do not hand-build those options.
 - Import Three.js from `@iwsdk/core`, never from `three` (duplicate instance = silent breakage).
-  Exception: `import type` from `three/addons/...`. Does not apply to `src/fallback/` (own three).
+  Exception: `import type` from `three/addons/...`. In `src/fallback/` import from `three` (same super-three).
 - `src/assets.ts` runs twice, in the app and in the editor: deterministic, no World/DOM/timers.
 - Components live in system-free modules and are listed in `src/components.ts` via
   `defineComponents()`. Register systems explicitly with `world.registerSystem()`.

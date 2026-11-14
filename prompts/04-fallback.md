@@ -6,8 +6,8 @@ Read CLAUDE.md and docs/spec.md. Branch: feat/fallback.
 Build a second entry point, served at /fallback.html, that runs the SAME src/core with plain
 Three.js and WebXR (no IWSDK imports anywhere under src/fallback/).
 
-1. Use three@0.186.0 for this entry only. If two Three.js copies cause a bundling conflict with
-   IWSDK's super-three, stop and tell me the options before changing anything.
+1. Use the same super-three 0.185.0 that IWSDK pins (import from `three`; the package.json
+   alias resolves it). Do not add a second copy of Three.js.
 2. renderer.xr.enabled, VRButton-style Enter VR button, setFoveation(1),
    requestSession('immersive-vr', { optionalFeatures: ['local-floor'] }).
 3. Fixed-step loop inside renderer.setAnimationLoop (STEP = 1/120, clamp 0.1 s).

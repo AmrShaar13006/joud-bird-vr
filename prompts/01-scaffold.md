@@ -4,7 +4,7 @@
 Read CLAUDE.md and docs/spec.md first.
 
 Task: scaffold the IWSDK 1.0 app into this repo without losing what is already here
-(CLAUDE.md, README.md, docs/, prompts/, public/models/joud.glb, .gitignore, .gitattributes,
+(CLAUDE.md, README.md, LICENSE, docs/, prompts/, public/models/joud.glb, .gitignore, .gitattributes,
 .editorconfig, setup-repo.ps1).
 
 1. Create branch feat/scaffold.
