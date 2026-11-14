@@ -1,7 +1,11 @@
 // Drawing for the canvas panels. Arabic lines use direction = 'rtl'.
-// Copy is a first draft: Amr to check the Arabic wording.
+// All words come from strings.ts.
 
+import type { Mode } from '../core/config';
 import type { DrawFn } from './canvas-panel';
+import { type InputMode, STRINGS as S } from './strings';
+
+export type { InputMode };
 
 export const COLORS = {
   panel: '#1d2b44',
@@ -13,9 +17,6 @@ export const COLORS = {
 
 const AR_FONT = "'Noto Sans Arabic', 'Noto Naskh Arabic', 'Segoe UI', Tahoma, sans-serif";
 const LATIN_FONT = "'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif";
-
-/** Input mode decides which hints we show. */
-export type InputMode = 'xr' | 'desktop';
 
 function background(ctx: CanvasRenderingContext2D, w: number, h: number): void {
   ctx.fillStyle = COLORS.panel;
@@ -41,32 +42,21 @@ function line(
   ctx.fillText(text, x, y);
 }
 
-const startHint = (mode: InputMode) =>
-  mode === 'xr' ? 'اضغط الزناد للبدء' : 'اضغط المسافة أو انقر للبدء';
-const flapHint = (mode: InputMode) =>
-  mode === 'xr' ? 'اضغط الزناد للطيران' : 'المسافة أو النقر للطيران';
-const againHint = (mode: InputMode) =>
-  mode === 'xr' ? 'اضغط الزناد أو A / X للعب مجددًا' : 'المسافة أو R للعب مجددًا';
-const resumeHint = (mode: InputMode) =>
-  mode === 'xr' ? 'اضغط الزناد أو B / Y للمتابعة' : 'المسافة أو Esc للمتابعة';
-
-export function attractArt(best: number, mode: InputMode): DrawFn {
+export function attractArt(best: number, input: InputMode, picker: boolean): DrawFn {
   return (ctx, w, h) => {
     background(ctx, w, h);
-    line(ctx, 'Joud Bird', w / 2, h * 0.22, h * 0.2);
-    line(ctx, 'طائر جود', w / 2, h * 0.42, h * 0.13, { ar: true, color: COLORS.accent });
-    line(ctx, startHint(mode), w / 2, h * 0.62, h * 0.09, { ar: true });
-    line(ctx, `أفضل نتيجة اليوم: ${best}`, w / 2, h * 0.82, h * 0.08, {
-      ar: true,
-      color: COLORS.muted,
-    });
+    line(ctx, S.title, w / 2, h * 0.17, h * 0.17);
+    line(ctx, S.mascot, w / 2, h * 0.36, h * 0.12, { ar: true, color: COLORS.accent });
+    line(ctx, S.start[input], w / 2, h * 0.55, h * 0.085, { ar: true });
+    line(ctx, S.bestToday(best), w / 2, h * 0.71, h * 0.075, { ar: true, color: COLORS.muted });
+    if (picker) line(ctx, S.chooseMode, w / 2, h * 0.87, h * 0.07, { ar: true, color: COLORS.accent });
   };
 }
 
-export function readyArt(mode: InputMode): DrawFn {
+export function readyArt(input: InputMode): DrawFn {
   return (ctx, w, h) => {
     background(ctx, w, h);
-    line(ctx, flapHint(mode), w / 2, h / 2, h * 0.45, { ar: true });
+    line(ctx, S.flap[input], w / 2, h / 2, h * 0.45, { ar: true });
   };
 }
 
@@ -75,32 +65,30 @@ export function gameOverArt(
   best: number,
   newBest: boolean,
   canRestart: boolean,
-  mode: InputMode,
+  mode: Mode,
+  input: InputMode,
 ): DrawFn {
   return (ctx, w, h) => {
     background(ctx, w, h);
-    line(ctx, 'انتهت الجولة', w / 2, h * 0.17, h * 0.13, { ar: true });
-    line(ctx, String(score), w / 2, h * 0.4, h * 0.24, { color: COLORS.accent });
-    line(
-      ctx,
-      newBest ? 'رقم قياسي جديد لليوم!' : `أفضل نتيجة اليوم: ${best}`,
-      w / 2,
-      h * 0.62,
-      h * 0.08,
-      { ar: true, color: newBest ? COLORS.accent : COLORS.muted },
-    );
-    line(ctx, againHint(mode), w / 2, h * 0.83, h * 0.08, {
+    line(ctx, S.roundOver, w / 2, h * 0.14, h * 0.12, { ar: true });
+    line(ctx, String(score), w / 2, h * 0.35, h * 0.22, { color: COLORS.accent });
+    line(ctx, newBest ? S.newBest : S.bestToday(best), w / 2, h * 0.55, h * 0.075, {
+      ar: true,
+      color: newBest ? COLORS.accent : COLORS.muted,
+    });
+    line(ctx, S.modeLine(mode), w / 2, h * 0.69, h * 0.07, { ar: true, color: COLORS.muted });
+    line(ctx, S.again[input], w / 2, h * 0.85, h * 0.08, {
       ar: true,
       color: canRestart ? COLORS.text : COLORS.panel, // hidden during the lockout
     });
   };
 }
 
-export function pausedArt(mode: InputMode): DrawFn {
+export function pausedArt(input: InputMode): DrawFn {
   return (ctx, w, h) => {
     background(ctx, w, h);
-    line(ctx, 'متوقف مؤقتًا', w / 2, h * 0.36, h * 0.26, { ar: true });
-    line(ctx, resumeHint(mode), w / 2, h * 0.72, h * 0.16, { ar: true, color: COLORS.muted });
+    line(ctx, S.paused, w / 2, h * 0.36, h * 0.26, { ar: true });
+    line(ctx, S.resume[input], w / 2, h * 0.72, h * 0.16, { ar: true, color: COLORS.muted });
   };
 }
 
@@ -111,6 +99,21 @@ export function scoreArt(score: number): DrawFn {
   };
 }
 
+/** One mode button. Selected = filled; the desktop key shows underneath. */
+export function modeButtonArt(mode: Mode, selected: boolean, input: InputMode): DrawFn {
+  return (ctx, w, h) => {
+    ctx.fillStyle = selected ? COLORS.accent : COLORS.panel;
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = selected ? COLORS.panel : COLORS.accent;
+    ctx.lineWidth = 10;
+    ctx.strokeRect(5, 5, w - 10, h - 10);
+    const ink = selected ? COLORS.panel : COLORS.text;
+    const y = input === 'desktop' ? h * 0.42 : h * 0.52;
+    line(ctx, S.modeName[mode], w / 2, y, h * 0.5, { ar: true, color: ink });
+    if (input === 'desktop') line(ctx, S.modeKey[mode], w / 2, h * 0.82, h * 0.2, { color: ink });
+  };
+}
+
 export function recentreArt(): DrawFn {
   return (ctx, w, h) => {
     ctx.fillStyle = '#34507d';
@@ -118,8 +121,8 @@ export function recentreArt(): DrawFn {
     ctx.strokeStyle = COLORS.text;
     ctx.lineWidth = 6;
     ctx.strokeRect(3, 3, w - 6, h - 6);
-    line(ctx, 'إعادة التوسيط', w / 2, h * 0.38, h * 0.3, { ar: true });
-    line(ctx, 'Recentre', w / 2, h * 0.75, h * 0.2, { color: COLORS.muted, weight: 'normal' });
+    line(ctx, S.recentre, w / 2, h * 0.38, h * 0.3, { ar: true });
+    line(ctx, S.recentreLatin, w / 2, h * 0.75, h * 0.2, { color: COLORS.muted, weight: 'normal' });
   };
 }
 
