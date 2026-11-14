@@ -5,7 +5,7 @@ import {
   MeshBasicMaterial,
   PlaneGeometry,
   SRGBColorSpace,
-} from '@iwsdk/core';
+} from 'three';
 
 export type DrawFn = (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
 
