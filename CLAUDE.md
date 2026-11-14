@@ -42,7 +42,45 @@ Read before any task: `docs/spec.md` (what to build), `docs/plan.md` (deadlines)
   force-push `main`.
 - After the feature freeze (Sun 15 Nov 22:00): bug fixes only, on `fix/*` branches.
 
-## Commands (fill in after scaffolding)
-- `npm run dev` — local dev server
-- `npm test` — Vitest (src/core)
-- `npm run build` — production build to `dist/`
+## Commands
+Node: `>=20.19 <21 || >=22.12 <23 || >=24` (see `engines`; `.nvmrc` pins 22.12.0).
+- `npm install` — install deps (lockfile is committed; prefer `npm ci` on clean machines)
+- `npm run dev` — IWSDK-managed dev server at `https://localhost:8081/` (self-signed cert,
+  IWER emulator injected on localhost) and opens a managed Chromium window. Port 8081 is fixed:
+  if busy it fails instead of picking another port.
+- `npm run dev:status` / `npm run dev:down` — show the runtime URLs / stop a background runtime.
+  `npx iwsdk dev up --headless` starts it in the background without a visible window.
+- `npm test` — Vitest, runs `src/core/**/*.test.ts` in Node (config: `vitest.config.ts`,
+  deliberately separate from `vite.config.ts`). `npm run test:watch` for watch mode.
+- `npm run typecheck` — `tsc --noEmit`. Run before testing in a browser: type errors can stop
+  IWSDK systems from starting without any console error.
+- `npm run build` — production build to `dist/` (`npm run preview` serves it).
+
+## IWSDK notes
+Merged from the generator's `AGENTS.md` (still at the repo root as the full reference, with
+path-scoped rules in `.claude/rules/` and skills in `.claude/skills/`). Where they conflict with
+the rules above, **this file wins**: the IWSDK skills assume a scene-editor, JSON-composed app;
+ours keeps game logic in `src/core` and builds the play window in code.
+- `iwsdk.config.json` is the project authority (scene, asset/component modules, XR features,
+  emulator device), not `vite.config.ts`. Editing it restarts Vite. `src/index.ts` passes
+  `virtual:iwsdk-project` whole to `World.create()`; do not hand-build those options.
+- Import Three.js from `@iwsdk/core`, never from `three` (duplicate instance = silent breakage).
+  Exception: `import type` from `three/addons/...`. Does not apply to `src/fallback/` (own three).
+- `src/assets.ts` runs twice, in the app and in the editor: deterministic, no World/DOM/timers.
+- Components live in system-free modules and are listed in `src/components.ts` via
+  `defineComponents()`. Register systems explicitly with `world.registerSystem()`.
+- Systems: use queries, not hand-kept entity arrays; never allocate in `update()`; use
+  `signal.peek()` in `update()`; push subscription teardowns into `this.cleanupFuncs`.
+- Create entities with `world.createTransformEntity()`, not `scene.add()`; free them with
+  `entity.dispose()` (not `destroy()`, which leaks GPU memory). Vector fields: use
+  `entity.getVectorView()`, since `setValue` throws on Vec/Color fields.
+- XR input: `this.input.xr.gamepads.left/right` with `InputComponent.Trigger` etc.
+  `world.visibilityState` is `NonImmersive | Visible | VisibleBlurred`; pause on blurred.
+- Proof levels: `browser_screenshot` (runtime) proves systems run; `scene_screenshot` (editor)
+  does not. Pose/interaction claims need an active XR session (`npx iwsdk xr status`).
+- MCP and CLI are the same surface: `npx iwsdk <domain> --help` (`xr`, `browser`, `ecs`,
+  `scene`, `ui`). MCP servers `iwsdk-runtime` and `iwsdk-reference` come from `.mcp.json`,
+  which `npx iwsdk adapter sync --tools claude` writes with absolute paths (so it is
+  gitignored). API lookup (`iwsdk-reference`) needs a one-time `npm run reference:warmup`.
+- Hand tracking is off in `iwsdk.config.json` (not in the MVP). Locomotion, grabbing and physics
+  are off.
