@@ -1,4 +1,4 @@
-// Game constants (metres, seconds) and URL overrides.
+// Game constants (metres, seconds), difficulty presets and URL overrides.
 // Plain TypeScript: no DOM, no Three.js, no IWSDK. See docs/spec.md.
 
 export interface Config {
@@ -17,6 +17,8 @@ export interface Config {
   speedStart: number;
   speedMax: number;
   speedPerPoint: number;
+  /** Floor and ceiling bounce the bird instead of ending the round. */
+  softBounds: boolean;
   laneW: number;
   laneH: number;
   rigDistance: number; // PlayRig distance ahead of the head
@@ -26,6 +28,7 @@ export interface Config {
   maxFrame: number; // longest frame we simulate after a hitch
 }
 
+/** Base constants. The difficulty values here are the original spec ("hard"). */
 export const CFG: Readonly<Config> = Object.freeze({
   gravity: -5.5,
   flapVelocity: 2.1,
@@ -42,6 +45,7 @@ export const CFG: Readonly<Config> = Object.freeze({
   speedStart: 1.1,
   speedMax: 1.5,
   speedPerPoint: 0.02,
+  softBounds: false,
   laneW: 2.8,
   laneH: 1.6,
   rigDistance: 2.5,
@@ -51,13 +55,60 @@ export const CFG: Readonly<Config> = Object.freeze({
   maxFrame: 0.1,
 });
 
+export type Mode = 'easy' | 'normal' | 'hard';
+export const MODES: readonly Mode[] = ['easy', 'normal', 'hard'];
+export const DEFAULT_MODE: Mode = 'normal';
+
+/** Difficulty presets, applied over CFG. */
+export const PRESETS: Readonly<Record<Mode, Readonly<Partial<Config>>>> = Object.freeze({
+  // Kids and families: wide fixed gap, slow fixed speed, no ramp, soft floor and ceiling.
+  easy: Object.freeze({
+    flapVelocity: 1.7,
+    gapStart: 1.0,
+    gapMin: 1.0,
+    gapShrinkPerPoint: 0,
+    speedStart: 0.9,
+    speedMax: 0.9,
+    speedPerPoint: 0,
+    spacing: 1.6,
+    softBounds: true,
+  }),
+  normal: Object.freeze({
+    flapVelocity: 1.9,
+    gapStart: 0.85,
+    gapMin: 0.65,
+    speedStart: 1.0,
+    speedMax: 1.3,
+  }),
+  // The original spec values (= CFG).
+  hard: Object.freeze({}),
+});
+
+export function isMode(value: unknown): value is Mode {
+  return value === 'easy' || value === 'normal' || value === 'hard';
+}
+
+/**
+ * CFG → preset for `mode` → URL overrides (which always win).
+ * Keeps the difficulty curve valid when an override moves its start.
+ */
+export function configFor(mode: Mode, overrides: Readonly<Partial<Config>> = {}): Config {
+  const cfg: Config = { ...CFG, ...PRESETS[mode], ...overrides };
+  cfg.gapMin = Math.min(cfg.gapMin, cfg.gapStart);
+  cfg.speedMax = Math.max(cfg.speedMax, cfg.speedStart);
+  return cfg;
+}
+
 export interface UrlFlags {
   debug: boolean;
   model: 'placeholder' | 'joud';
 }
 
-export interface ParsedOverrides {
-  cfg: Config;
+export interface UrlSettings {
+  /** Operator's default mode (?mode=), or DEFAULT_MODE. */
+  mode: Mode;
+  /** Numeric overrides (?g=&flap=&gap=&speed=&dist=&h=), applied over any preset. */
+  overrides: Partial<Config>;
   flags: UrlFlags;
   /** Parameter names that were applied, for the debug HUD. */
   applied: string[];
@@ -74,12 +125,12 @@ const NUMERIC: Record<string, { key: keyof Config; min: number; max: number }> =
 };
 
 /**
- * Apply `?g=&flap=&gap=&speed=&dist=&h=&debug=1&model=joud` on top of `base`.
+ * Read `?mode=&g=&flap=&gap=&speed=&dist=&h=&debug=1&model=joud`.
  * Invalid or out-of-range values are ignored.
  */
-export function parseOverrides(search: string, base: Readonly<Config> = CFG): ParsedOverrides {
+export function parseUrl(search: string): UrlSettings {
   const params = new URLSearchParams(search);
-  const cfg: Config = { ...base };
+  const overrides: Partial<Config> = {};
   const applied: string[] = [];
 
   for (const [param, { key, min, max }] of Object.entries(NUMERIC)) {
@@ -87,19 +138,20 @@ export function parseOverrides(search: string, base: Readonly<Config> = CFG): Pa
     if (raw === null || raw.trim() === '') continue;
     const value = Number(raw);
     if (!Number.isFinite(value) || value < min || value > max) continue;
-    cfg[key] = value;
+    (overrides as Record<string, number>)[key] = value;
     applied.push(param);
   }
-  // Keep the difficulty curve consistent with an overridden starting point.
-  cfg.gapMin = Math.min(cfg.gapMin, cfg.gapStart);
-  cfg.speedMax = Math.max(cfg.speedMax, cfg.speedStart);
+
+  const rawMode = params.get('mode');
+  const mode = isMode(rawMode) ? rawMode : DEFAULT_MODE;
+  if (isMode(rawMode)) applied.push('mode');
 
   const debug = params.get('debug');
   const flags: UrlFlags = {
     debug: debug === '1' || debug === 'true',
     model: params.get('model') === 'joud' ? 'joud' : 'placeholder',
   };
-  return { cfg, flags, applied };
+  return { mode, overrides, flags, applied };
 }
 
 /** Gap height for the next obstacle at this score. */

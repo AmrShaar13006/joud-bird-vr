@@ -28,7 +28,7 @@ export class ObstacleField {
   private sinceSpawn = 0;
   private lastGapY = 0;
 
-  constructor(private readonly cfg: Readonly<Config>) {
+  constructor(private cfg: Readonly<Config>) {
     this.pool = [];
     for (let i = 0; i < POOL_SIZE; i++) {
       this.pool.push({ active: false, x: 0, gapY: 0, gap: 0, scored: false });
@@ -44,6 +44,12 @@ export class ObstacleField {
   /** Recycle x: fully outside the right edge of the lane. */
   get despawnX(): number {
     return this.cfg.laneW / 2 + this.cfg.pipeWidth / 2;
+  }
+
+  /** Switch to another difficulty; clears the field. */
+  setConfig(cfg: Readonly<Config>): void {
+    this.cfg = cfg;
+    this.reset();
   }
 
   reset(): void {

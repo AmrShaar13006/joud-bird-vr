@@ -7,7 +7,7 @@ import {
   Vector3,
   VisibilityState,
 } from '@iwsdk/core';
-import { type Config, parseOverrides, type UrlFlags } from '../core/config';
+import { type Config, configFor, type Mode, parseUrl, type UrlFlags } from '../core/config';
 import { Game, type GameState } from '../core/game';
 import { type GameCommand, InputBus } from '../core/input';
 import { createOverlay, type Overlay } from '../scene/overlay';
@@ -15,7 +15,7 @@ import {
   attractArt,
   gameOverArt,
   hudArt,
-  type Mode,
+  type InputMode,
   pausedArt,
   readyArt,
   recentreArt,
@@ -37,6 +37,8 @@ const BUTTON_PAUSE = 5;
  */
 export class GameSystem extends createSystem({}) {
   private cfg!: Config;
+  private overrides: Partial<Config> = {};
+  private defaultMode: Mode = 'normal';
   private flags!: UrlFlags;
   private game!: Game;
   private bus!: InputBus;
@@ -54,7 +56,7 @@ export class GameSystem extends createSystem({}) {
 
   // panel cache: redraw only when something visible changes
   private drawnState: GameState | '' = '';
-  private drawnMode: Mode | '' = '';
+  private drawnMode: InputMode | '' = '';
   private drawnScore = -1;
   private drawnRestart = false;
   private drawnBest = -1;
@@ -71,10 +73,12 @@ export class GameSystem extends createSystem({}) {
   private readonly hudLines: string[] = [];
 
   init(): void {
-    const parsed = parseOverrides(window.location.search);
-    this.cfg = parsed.cfg;
-    this.flags = parsed.flags;
-    this.game = new Game(this.cfg, { best: loadBest() });
+    const url = parseUrl(window.location.search);
+    this.overrides = url.overrides;
+    this.defaultMode = url.mode;
+    this.cfg = configFor(url.mode, url.overrides);
+    this.flags = url.flags;
+    this.game = new Game(this.cfg, { best: loadBest(url.mode), mode: url.mode });
     this.bus = new InputBus();
     this.view = new PlayWindow(this.cfg);
 
@@ -257,7 +261,7 @@ export class GameSystem extends createSystem({}) {
           this.pulse();
           break;
         case 'newBest':
-          saveBest(this.game.best);
+          saveBest(this.game.mode, this.game.best);
           break;
       }
     }
@@ -281,7 +285,7 @@ export class GameSystem extends createSystem({}) {
   private updatePanels(): void {
     const g = this.game;
     const v = this.view;
-    const mode: Mode = this.immersive ? 'xr' : 'desktop';
+    const mode: InputMode = this.immersive ? 'xr' : 'desktop';
     const st = g.state;
     const canRestart = g.canRestartWithTrigger;
     const changed = st !== this.drawnState || mode !== this.drawnMode;

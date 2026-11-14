@@ -15,7 +15,7 @@ const AR_FONT = "'Noto Sans Arabic', 'Noto Naskh Arabic', 'Segoe UI', Tahoma, sa
 const LATIN_FONT = "'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif";
 
 /** Input mode decides which hints we show. */
-export type Mode = 'xr' | 'desktop';
+export type InputMode = 'xr' | 'desktop';
 
 function background(ctx: CanvasRenderingContext2D, w: number, h: number): void {
   ctx.fillStyle = COLORS.panel;
@@ -41,16 +41,16 @@ function line(
   ctx.fillText(text, x, y);
 }
 
-const startHint = (mode: Mode) =>
+const startHint = (mode: InputMode) =>
   mode === 'xr' ? 'اضغط الزناد للبدء' : 'اضغط المسافة أو انقر للبدء';
-const flapHint = (mode: Mode) =>
+const flapHint = (mode: InputMode) =>
   mode === 'xr' ? 'اضغط الزناد للطيران' : 'المسافة أو النقر للطيران';
-const againHint = (mode: Mode) =>
+const againHint = (mode: InputMode) =>
   mode === 'xr' ? 'اضغط الزناد أو A / X للعب مجددًا' : 'المسافة أو R للعب مجددًا';
-const resumeHint = (mode: Mode) =>
+const resumeHint = (mode: InputMode) =>
   mode === 'xr' ? 'اضغط الزناد أو B / Y للمتابعة' : 'المسافة أو Esc للمتابعة';
 
-export function attractArt(best: number, mode: Mode): DrawFn {
+export function attractArt(best: number, mode: InputMode): DrawFn {
   return (ctx, w, h) => {
     background(ctx, w, h);
     line(ctx, 'Joud Bird', w / 2, h * 0.22, h * 0.2);
@@ -63,7 +63,7 @@ export function attractArt(best: number, mode: Mode): DrawFn {
   };
 }
 
-export function readyArt(mode: Mode): DrawFn {
+export function readyArt(mode: InputMode): DrawFn {
   return (ctx, w, h) => {
     background(ctx, w, h);
     line(ctx, flapHint(mode), w / 2, h / 2, h * 0.45, { ar: true });
@@ -75,7 +75,7 @@ export function gameOverArt(
   best: number,
   newBest: boolean,
   canRestart: boolean,
-  mode: Mode,
+  mode: InputMode,
 ): DrawFn {
   return (ctx, w, h) => {
     background(ctx, w, h);
@@ -96,7 +96,7 @@ export function gameOverArt(
   };
 }
 
-export function pausedArt(mode: Mode): DrawFn {
+export function pausedArt(mode: InputMode): DrawFn {
   return (ctx, w, h) => {
     background(ctx, w, h);
     line(ctx, 'متوقف مؤقتًا', w / 2, h * 0.36, h * 0.26, { ar: true });
