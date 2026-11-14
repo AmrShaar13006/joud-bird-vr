@@ -1,0 +1,128 @@
+{
+  "name": "Joud Bird",
+  "status": "LOCKED 14 Nov 2026",
+  "source": "JOUD 26 PRINT FILE (TONE, Joud Campaign 2026) and the Talaatna reel",
+  "decisions": {
+    "character": "One bird with two outfits. The game uses the round outfit (glasses + flowered vest).",
+    "logo_on_model": false,
+    "tail": "Small peach feathered tail, taken from the slim-outfit side view of the same bird",
+    "vest_back": "Plain vest colour with the green collar continuing around (not shown in any reference; approved assumption)",
+    "head_tuft": "Left out (appears in one poster close-up only)"
+  },
+  "silhouette": "One big round body with a smaller round head merged on top (no neck); two long wings spread to the sides in flight",
+  "proportions": {
+    "head_height_of_total": 0.33,
+    "body": "wider than tall",
+    "wing_length": "about one body width each"
+  },
+  "face": {
+    "eyes": "two small black dots",
+    "beak": "tiny dark squiggle between and just below the lenses",
+    "blush": "peach, both cheeks",
+    "glasses": "two large round wire lenses with a bridge; built in code, not generated",
+    "expression": "calm, slightly sleepy"
+  },
+  "palette": {
+    "body_cream": "#FCF1EA",
+    "vest": "#FCE3C6",
+    "green": "#248F59",
+    "dark_green": "#005D2A",
+    "flower_pink": "#E46A85",
+    "yellow": "#FFE672",
+    "peach": "#FFC59B",
+    "orange_trim": "#FE7A45",
+    "button_red_brown": "#91250F",
+    "glasses_frame": "#555655",
+    "legs": "#111111"
+  },
+  "palette_note": "Sampled from the print file as screen RGB. The flying poster draws the vest pinker (#F8C2A9); the board version above is the reference.",
+  "outfit": {
+    "vest": "sleeveless, cream-peach",
+    "collar": "green, two lapels",
+    "armholes": "thin orange trim",
+    "front": "green centre line with four red-brown buttons; two pink flowers with yellow centres on green stems with leaves"
+  },
+  "wings": "cream, ending in solid peach scalloped tips",
+  "style": "flat matte colours, toy-like, no outlines, no shine",
+  "must_keep": [
+    "round cream body with merged round head",
+    "two round glasses",
+    "green collar and flowered vest",
+    "peach wing tips"
+  ],
+  "generated_by_meshy": [
+    "body",
+    "head",
+    "dot eyes",
+    "beak",
+    "blush",
+    "vest",
+    "wings",
+    "tail"
+  ],
+  "built_in_code": [
+    "glasses (two torus rings + bridge)",
+    "legs (thin black cylinders, three toes, trailing back)"
+  ],
+  "constraints": {
+    "max_triangles": 8000,
+    "materials": "1-2",
+    "max_texture": 1024,
+    "transparency": false,
+    "format": "GLB",
+    "max_file_mb": 1,
+    "collision_radius_m": 0.12,
+    "pivot": "body centre"
+  },
+  "animation": [
+    "idle bob",
+    "squash on flap",
+    "tilt from vertical velocity (clamped +-30 deg)",
+    "hit flash"
+  ],
+  "model": {
+    "file": "public/models/joud.glb",
+    "source": "Meshy 'Toy Bird 6k Triangles', optimized 14 Nov 2026",
+    "size_kb": 368,
+    "triangles": 6176,
+    "draw_calls": 1,
+    "materials": 1,
+    "textures": {
+      "baseColor": "1024 WebP",
+      "normal": "1024 WebP (keep: hides low-poly facets on the belly)"
+    },
+    "material": {
+      "metallic": 0,
+      "roughness": 0.86
+    },
+    "units": "model units, centred at the origin; body sphere radius ~0.6; wingspan 1.90; height 1.39",
+    "game_scale": 0.2,
+    "game_scale_note": "0.2 makes the body radius ~0.12 m to match the collision circle; wingspan becomes ~0.38 m",
+    "facing": "+Z is the front (face, vest). Rotate about Y by about -50 to -60 degrees so it faces the flight direction (left) while the player still sees the vest and face. A pure side view hides the outfit and shows the near wing edge-on.",
+    "landmarks_model_units": {
+      "left_eye": [
+        -0.087,
+        0.527,
+        0.23
+      ],
+      "right_eye": [
+        0.084,
+        0.529,
+        0.229
+      ],
+      "beak": [
+        -0.002,
+        0.493,
+        0.285
+      ],
+      "head_half_width_at_eyes": 0.25,
+      "head_top_y": 0.696,
+      "body_bottom_y": -0.697
+    },
+    "glasses_hint": "Two torus rings centred just in front of each eye (z ~0.26), ring radius ~0.065, tube ~0.008, colour #555655, each turned ~15-20 degrees about Y to follow the head's curve; short bridge between them above the beak at y ~0.54. Add as children of the model so they inherit scale and rotation.",
+    "legs_hint": "Two thin black cylinders from under the body (y ~-0.65, x ~+-0.15), trailing backwards and down, with three short toes each.",
+    "missing_vs_brief": [
+      "tail (not generated; optional, invisible at game distance)"
+    ]
+  }
+}
