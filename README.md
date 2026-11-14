@@ -21,8 +21,8 @@ Stack: Meta IWSDK 1.0 (Three.js + WebXR), TypeScript, Vite, Vitest. Hosted on Ve
 | `src/core/` | Framework-free game logic (after scaffolding) |
 
 ## First-time setup (Windows)
-1. Install Git, Node.js LTS and (optional) GitHub CLI `gh`, then run `gh auth login`.
-2. In this folder: `powershell -ExecutionPolicy Bypass -File .\setup-repo.ps1`
+1. Clone: `git clone https://github.com/AmrShaar13006/joud-bird-vr.git`
+2. Install Node.js LTS.
 3. In Vercel: **Add New → Project →** import `joud-bird-vr` from your personal GitHub.
    Framework preset: Vite (after prompt 01 adds `package.json`).
 4. Open Claude Code in this folder and run `prompts/01-scaffold.md`.
@@ -34,4 +34,9 @@ Filled in by prompt 01: `npm run dev`, `npm test`, `npm run build`.
 Open the production URL in Quest Browser. Add `?debug=1` for the HUD, `?model=joud` for the GLB
 bird, and `?g=&flap=&gap=&speed=&dist=&h=` to tune without redeploying.
 
-The Joud mascot belongs to جمعية جود. Keep this repo private.
+## License
+Code: [MIT](LICENSE).
+
+The Joud Bird name, mascot, model (`public/models/joud.glb`) and reference images
+(`docs/references/`) belong to جمعية جود and are used with their permission for this event.
+They are **not** covered by the MIT license and may not be reused without Joud's permission.
