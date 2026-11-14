@@ -23,3 +23,26 @@ desktop.ini
 # editors
 .idea/
 *.swp
+
+# merged from the IWSDK starter's .gitignore
+.pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.lcov
+*.swo
+.vscode/*
+!.vscode/extensions.json
+pids/
+*.pid
+*.seed
+*.pid.lock
+.tmp/
+.temp/
+.iwsdk/
+
+# MCP configs written by `npx iwsdk adapter sync` (machine-specific absolute paths)
+.mcp.json
+.cursor/mcp.json
+.vscode/mcp.json
+.codex/config.toml
