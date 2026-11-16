@@ -12,24 +12,16 @@ import {
   VisibilityState,
 } from '@iwsdk/core';
 import { type Config, configFor, type Mode, MODES, parseUrl, type UrlFlags } from '../core/config';
-import { Game, type GameState } from '../core/game';
+import { Game } from '../core/game';
 import { type GameCommand, InputBus } from '../core/input';
-import { createOverlay, type Overlay } from '../scene/overlay';
-import {
-  attractArt,
-  gameOverArt,
-  hudArt,
-  type InputMode,
-  modeButtonArt,
-  pausedArt,
-  readyArt,
-  recentreArt,
-  scoreArt,
-} from '../scene/panel-art';
+import { DebugHud } from '../scene/debug-hud';
+import { attachDesktopInput } from '../scene/desktop-input';
+import { createOverlay } from '../scene/overlay';
+import { recentreArt } from '../scene/panel-art';
+import { PanelController } from '../scene/panels';
 import { PlayWindow } from '../scene/play-window';
 import { loadBest, saveBest } from '../scene/storage';
 import { STRINGS } from '../scene/strings';
-import { attachDesktopInput } from './desktop-input';
 
 const HANDS = ['left', 'right'] as const;
 /** xr-standard mapping on Quest Touch (Plus): 4 = A/X, 5 = B/Y. */
@@ -42,24 +34,24 @@ const BUTTON_PAUSE = 5;
  * It never decides game rules itself.
  */
 export class GameSystem extends createSystem({}) {
-  private cfg!: Config;
   private overrides: Partial<Config> = {};
   private defaultMode: Mode = 'normal';
   private flags!: UrlFlags;
   private game!: Game;
   private bus!: InputBus;
   private view!: PlayWindow;
-  private overlay!: Overlay;
+  private panels!: PanelController;
+  private hud: DebugHud | null = null;
   private recentreEntity!: Entity;
   private modeEntities = {} as Record<Mode, Entity>;
   private modeMeshes: Mesh[] = [];
+  /** Ray targets on the attract screen: recentre + mode buttons. */
+  private attractTargets: Mesh[] = [];
   private readonly raycaster = new Raycaster();
   private readonly pointer = new Vector2();
   private readonly rayMatrix = new Matrix4();
   private readonly rayOrigin = new Vector3();
   private readonly rayDir = new Vector3();
-  /** Ray targets on the attract screen: recentre + mode buttons. */
-  private attractTargets: Mesh[] = [];
 
   private session: XRSession | null = null;
   private immersive = false;
@@ -69,34 +61,20 @@ export class GameSystem extends createSystem({}) {
   private readonly headQuat = new Quaternion();
   private readonly tmpQuat = new Quaternion();
 
-  // panel cache: redraw only when something visible changes
-  private drawnState: GameState | '' = '';
-  private drawnMode: InputMode | '' = '';
-  private drawnScore = -1;
-  private drawnRestart = false;
-  private drawnBest = -1;
-  private drawnGameMode: Mode | '' = '';
-
   // debug HUD
   private lastProfile = '-';
   private lastButton = -1;
   private lastError = '-';
-  private frames = 0;
-  private fpsTime = 0;
-  private fps = 0;
-  private hudTime = 0;
-  private hudEl: HTMLElement | null = null;
-  private readonly hudLines: string[] = [];
 
   init(): void {
     const url = parseUrl(window.location.search);
     this.overrides = url.overrides;
     this.defaultMode = url.mode;
-    this.cfg = configFor(url.mode, url.overrides);
     this.flags = url.flags;
-    this.game = new Game(this.cfg, { best: loadBest(url.mode), mode: url.mode });
+    const cfg = configFor(url.mode, url.overrides);
+    this.game = new Game(cfg, { best: loadBest(url.mode), mode: url.mode });
     this.bus = new InputBus();
-    this.view = new PlayWindow(this.cfg);
+    this.view = new PlayWindow(cfg);
 
     this.world.createTransformEntity(this.view.environment, { persistent: true });
     const rigEntity = this.world.createTransformEntity(this.view.rig, { persistent: true });
@@ -118,7 +96,8 @@ export class GameSystem extends createSystem({}) {
 
     this.renderer.xr.setFoveation(1);
 
-    this.overlay = createOverlay(() => this.world.launchXR(), STRINGS.desktopHint);
+    const overlay = createOverlay(() => this.world.launchXR(), STRINGS.desktopHint);
+    this.panels = new PanelController(this.view, overlay, { picker: true, recentre: true });
     this.cleanupFuncs.push(
       this.world.visibilityState.subscribe((v) => this.onVisibility(v)),
       attachDesktopInput(
@@ -148,8 +127,7 @@ export class GameSystem extends createSystem({}) {
     );
 
     if (this.flags.debug) {
-      this.hudEl = document.getElementById('hud');
-      if (this.hudEl) this.hudEl.hidden = false;
+      this.hud = new DebugHud(this.view.hud);
       // ?debug=1 only: lets emulator/desktop checks read game state.
       (window as unknown as { joudBird: unknown }).joudBird = {
         game: this.game,
@@ -166,15 +144,17 @@ export class GameSystem extends createSystem({}) {
       this.pollXRButtons();
       if (this.needsXRPlacement) this.tryPlaceXR();
     } else if (this.needsDesktopPlacement) {
-      this.placeForDesktop();
+      this.view.placeForCamera(this.camera);
+      this.needsDesktopPlacement = false;
     }
 
     this.bus.drain(this.handleCommand);
     this.game.advance(delta);
     this.consumeEvents();
     this.view.sync(this.game, delta, time);
-    this.updatePanels();
-    if (this.flags.debug) this.updateHud(delta);
+    this.panels.update(this.game, this.immersive);
+    this.updateHover();
+    if (this.hud?.tick(delta)) this.showHud();
   }
 
   private readonly handleCommand = (cmd: GameCommand): void => {
@@ -274,13 +254,27 @@ export class GameSystem extends createSystem({}) {
     return hit ? (hit.object as Mesh) : null;
   }
 
+  private pollXRButtons(): void {
+    const pads = this.input.xr.gamepads;
+    for (const hand of HANDS) {
+      const pad = pads[hand];
+      if (!pad) continue;
+      if (pad.getButtonDownByIdx(BUTTON_RESTART)) this.bus.push('restart');
+      if (pad.getButtonDownByIdx(BUTTON_PAUSE)) this.bus.push('pause');
+      if (this.hud) {
+        const n = pad.gamepad.buttons.length;
+        for (let i = 0; i < n; i++) if (pad.getButtonDownByIdx(i)) this.lastButton = i;
+        if (this.lastProfile === '-') this.lastProfile = pad.inputSource.profiles[0] ?? '-';
+      }
+    }
+  }
+
   // ---------- difficulty ----------
 
   /** Switch mode between rounds (Attract screen only); loads that mode's best. */
   private selectMode(mode: Mode | undefined): void {
     if (!mode || this.game.state !== 'attract' || mode === this.game.mode) return;
-    const cfg = configFor(mode, this.overrides);
-    if (this.game.configure(cfg, mode, loadBest(mode))) this.cfg = cfg;
+    this.game.configure(configFor(mode, this.overrides), mode, loadBest(mode));
   }
 
   /** Desktop click/touch on a mode button. Returns true if it hit one. */
@@ -294,24 +288,18 @@ export class GameSystem extends createSystem({}) {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hit = this.raycaster.intersectObjects(this.modeMeshes, false)[0];
     if (!hit) return false;
-    const mode = MODES.find((m) => this.view.modeButtons[m].mesh === hit.object);
-    this.selectMode(mode);
+    this.selectMode(MODES.find((m) => this.view.modeButtons[m].mesh === hit.object));
     return true;
   }
 
-  private pollXRButtons(): void {
-    const pads = this.input.xr.gamepads;
-    for (const hand of HANDS) {
-      const pad = pads[hand];
-      if (!pad) continue;
-      if (pad.getButtonDownByIdx(BUTTON_RESTART)) this.bus.push('restart');
-      if (pad.getButtonDownByIdx(BUTTON_PAUSE)) this.bus.push('pause');
-      if (this.flags.debug) {
-        const n = pad.gamepad.buttons.length;
-        for (let i = 0; i < n; i++) if (pad.getButtonDownByIdx(i)) this.lastButton = i;
-        if (this.lastProfile === '-') this.lastProfile = pad.inputSource.profiles[0] ?? '-';
-      }
+  /** Hovered ray targets grow a little so the player sees what the trigger will press. */
+  private updateHover(): void {
+    if (this.game.state !== 'attract' || !this.immersive) return;
+    for (const m of MODES) {
+      const hovered = this.modeEntities[m].hasComponent(Hovered);
+      this.view.modeButtons[m].mesh.scale.setScalar(hovered ? 1.08 : 1);
     }
+    this.view.recentre.mesh.scale.setScalar(this.recentreEntity.hasComponent(Hovered) ? 1.08 : 1);
   }
 
   // ---------- placement ----------
@@ -336,21 +324,7 @@ export class GameSystem extends createSystem({}) {
     this.needsXRPlacement = false;
   }
 
-  /** Desktop: same placement from the fixed browser camera, sized to fit the window. */
-  private placeForDesktop(): void {
-    const cam = this.camera;
-    cam.updateMatrixWorld(true);
-    cam.getWorldPosition(this.headPos);
-    cam.getWorldQuaternion(this.headQuat);
-    const tanV = Math.tan((cam.fov * Math.PI) / 360);
-    const tanH = tanV * cam.aspect;
-    const fitH = (this.cfg.laneH + 0.9) / (2 * tanV); // lane plus score and hint rows
-    const fitW = (this.cfg.laneW + 0.3) / (2 * tanH);
-    this.view.place(this.headPos, this.headQuat, Math.max(fitH, fitW));
-    this.needsDesktopPlacement = false;
-  }
-
-  // ---------- events, panels, HUD ----------
+  // ---------- events, HUD ----------
 
   private consumeEvents(): void {
     const events = this.game.events;
@@ -375,8 +349,11 @@ export class GameSystem extends createSystem({}) {
   private pulse(): void {
     for (const hand of HANDS) {
       const pad = this.input.xr.gamepads[hand];
-      const actuator = (pad?.gamepad as { hapticActuators?: { pulse?: (v: number, ms: number) => Promise<unknown> }[] } | undefined)
-        ?.hapticActuators?.[0];
+      const actuator = (
+        pad?.gamepad as
+          | { hapticActuators?: { pulse?: (v: number, ms: number) => Promise<unknown> }[] }
+          | undefined
+      )?.hapticActuators?.[0];
       try {
         actuator?.pulse?.(0.7, 120)?.catch(() => {});
       } catch {
@@ -385,82 +362,28 @@ export class GameSystem extends createSystem({}) {
     }
   }
 
-  private updatePanels(): void {
+  private showHud(): void {
     const g = this.game;
-    const v = this.view;
-    const mode: InputMode = this.immersive ? 'xr' : 'desktop';
-    const st = g.state;
-    const canRestart = g.canRestartWithTrigger;
-    const changed =
-      st !== this.drawnState || mode !== this.drawnMode || g.mode !== this.drawnGameMode;
-
-    if (changed || (st === 'gameOver' && canRestart !== this.drawnRestart) || g.best !== this.drawnBest) {
-      v.attract.visible = st === 'attract';
-      v.ready.visible = st === 'ready';
-      v.gameOver.visible = st === 'gameOver';
-      v.paused.visible = st === 'paused';
-      v.score.visible = st !== 'attract';
-      v.recentre.visible = st === 'attract' && this.immersive;
-      this.overlay.setVisible(st === 'attract' && !this.immersive);
-      for (const m of MODES) {
-        const b = v.modeButtons[m];
-        b.visible = st === 'attract';
-        if (st === 'attract') b.redraw(modeButtonArt(m, m === g.mode, mode));
-      }
-      if (st === 'attract') v.attract.redraw(attractArt(g.best, mode, true));
-      if (st === 'ready') v.ready.redraw(readyArt(mode));
-      if (st === 'gameOver') v.gameOver.redraw(gameOverArt(g.score, g.best, g.newBest, canRestart, g.mode, mode));
-      if (st === 'paused') v.paused.redraw(pausedArt(mode));
-      this.drawnState = st;
-      this.drawnMode = mode;
-      this.drawnRestart = canRestart;
-      this.drawnBest = g.best;
-      this.drawnGameMode = g.mode;
-    }
-    // Hovered ray targets grow a little so the player sees what the trigger will press.
-    if (st === 'attract' && this.immersive) {
-      for (const m of MODES) {
-        v.modeButtons[m].mesh.scale.setScalar(this.modeEntities[m].hasComponent(Hovered) ? 1.08 : 1);
-      }
-      v.recentre.mesh.scale.setScalar(this.recentreEntity.hasComponent(Hovered) ? 1.08 : 1);
-    }
-    if (g.score !== this.drawnScore) {
-      v.score.redraw(scoreArt(g.score));
-      this.drawnScore = g.score;
-    }
-  }
-
-  private updateHud(delta: number): void {
-    this.frames++;
-    this.fpsTime += delta;
-    if (this.fpsTime >= 0.5) {
-      this.fps = this.frames / this.fpsTime;
-      this.frames = 0;
-      this.fpsTime = 0;
-    }
-    this.hudTime += delta;
-    if (this.hudTime < 0.25) return;
-    this.hudTime = 0;
-
     const info = this.renderer.info.render;
-    const xrState = this.world.visibilityState.value;
-    const l = this.hudLines;
-    l.length = 0;
-    l.push(`fps ${this.fps.toFixed(1)}   state ${this.game.state}   score ${this.game.score}`);
-    l.push(`xr ${xrState}${this.session ? ' (session)' : ''}`);
-    l.push(`profile ${this.lastProfile}`);
-    l.push(`last button ${this.lastButton}   last cmd ${this.bus.last ?? '-'}`);
-    l.push(`calls ${info.calls}   tris ${info.triangles}`);
-    l.push(`bird placeholder (model=${this.flags.model})`);
-    l.push(`mode ${this.game.mode}   best ${this.game.best}   speed ${this.game.speed.toFixed(2)}   gap ${this.game.gap.toFixed(2)}`);
-    l.push(`err ${this.lastError}`);
-
-    if (this.immersive) {
-      this.view.hud.visible = true;
-      this.view.hud.redraw(hudArt(l));
-    } else {
-      this.view.hud.visible = false;
-      if (this.hudEl) this.hudEl.textContent = l.join('\n');
-    }
+    this.hud?.show(
+      {
+        shell: 'iwsdk',
+        state: g.state,
+        score: g.score,
+        xr: `${this.world.visibilityState.value}${this.session ? ' (session)' : ''}`,
+        profile: this.lastProfile,
+        lastButton: this.lastButton,
+        lastCmd: this.bus.last ?? '-',
+        calls: info.calls,
+        tris: info.triangles,
+        model: this.flags.model,
+        mode: g.mode,
+        best: g.best,
+        speed: g.speed,
+        gap: g.gap,
+        error: this.lastError,
+      },
+      this.immersive,
+    );
   }
 }

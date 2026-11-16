@@ -10,13 +10,14 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
+  type PerspectiveCamera,
   PlaneGeometry,
   Quaternion,
   Shape,
   ShapeGeometry,
   SphereGeometry,
   Vector3,
-} from '@iwsdk/core';
+} from 'three';
 import { type Config, type Mode, MODES } from '../core/config';
 import type { Game } from '../core/game';
 import { POOL_SIZE } from '../core/obstacles';
@@ -54,6 +55,8 @@ export class PlayWindow {
   private squash = 0;
   private flash = 0;
   private readonly tmpFwd = new Vector3();
+  private readonly tmpPos = new Vector3();
+  private readonly tmpQuat = new Quaternion();
 
   constructor(private readonly cfg: Readonly<Config>) {
     const W = cfg.laneW;
@@ -194,6 +197,21 @@ export class PlayWindow {
     this.rig.rotation.set(0, Math.atan2(-f.x, -f.z), 0);
     // local-floor puts the floor at y=0; with `local`, y=0 is the head, so guess a seated floor.
     this.ground.position.y = headPos.y > 0.6 ? 0 : headPos.y - 1.2;
+  }
+
+  /**
+   * Desktop: place the rig in front of a fixed camera, far enough that the
+   * lane plus the score and hint rows fit the window.
+   */
+  placeForCamera(cam: PerspectiveCamera): void {
+    cam.updateMatrixWorld(true);
+    cam.getWorldPosition(this.tmpPos);
+    cam.getWorldQuaternion(this.tmpQuat);
+    const tanV = Math.tan((cam.fov * Math.PI) / 360);
+    const tanH = tanV * cam.aspect;
+    const fitH = (this.cfg.laneH + 0.9) / (2 * tanV);
+    const fitW = (this.cfg.laneW + 0.3) / (2 * tanH);
+    this.place(this.tmpPos, this.tmpQuat, Math.max(fitH, fitW));
   }
 
   onFlap(): void {
