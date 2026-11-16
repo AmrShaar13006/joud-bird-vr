@@ -131,16 +131,16 @@ export function buildExtrasGeometry(): BufferGeometry {
   parts.push(rod(bridgeFrom, new Vector3(1, 0, 0), bridgeLen, 0.009, C.glasses));
 
   // legs: from under the body, trailing backwards (-Z) and down, three toes each
-  const legDir = new Vector3(0, -0.6, -1).normalize();
+  const legDir = new Vector3(0, -0.8, -1).normalize();
   const side = new Vector3(1, 0, 0);
   for (const x of [-0.15, 0.15]) {
-    const hip = new Vector3(x, -0.65, 0);
-    const legLen = 0.32;
+    const hip = new Vector3(x, -0.62, -0.05);
+    const legLen = 0.42;
     parts.push(rod(hip, legDir, legLen, 0.02, C.legs));
     const ankle = hip.clone().addScaledVector(legDir, legLen);
     for (const k of [-0.55, 0, 0.55]) {
       const toe = legDir.clone().addScaledVector(side, k).normalize();
-      parts.push(rod(ankle, toe, 0.09, 0.012, C.legs));
+      parts.push(rod(ankle, toe, 0.11, 0.013, C.legs));
     }
   }
   const merged = mergeGeometries(parts, false);
