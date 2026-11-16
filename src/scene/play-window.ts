@@ -21,7 +21,13 @@ import {
 import { type Config, type Mode, MODES } from '../core/config';
 import type { Game } from '../core/game';
 import { POOL_SIZE } from '../core/obstacles';
+import { Bird } from './bird';
 import { CanvasPanel } from './canvas-panel';
+
+export interface ViewOptions {
+  /** Visual effects on (?fx=0 turns them off). */
+  fx: boolean;
+}
 
 const SKY_TOP = new Color('#6fb8e8');
 const SKY_HORIZON = new Color('#fde9c9');
@@ -39,7 +45,7 @@ export class PlayWindow {
   readonly environment = new Group();
   readonly rig = new Group();
   readonly ground: Mesh;
-  readonly bird: Mesh<SphereGeometry, MeshLambertMaterial>;
+  readonly bird: Bird;
   /** [top, bottom] meshes per pool slot. */
   readonly obstacleMeshes: Mesh[][] = [];
   readonly attract: CanvasPanel;
@@ -52,13 +58,14 @@ export class PlayWindow {
   /** Mode picker buttons (Attract screen). Parented by the shell. */
   readonly modeButtons: Record<Mode, CanvasPanel>;
 
-  private squash = 0;
-  private flash = 0;
   private readonly tmpFwd = new Vector3();
   private readonly tmpPos = new Vector3();
   private readonly tmpQuat = new Quaternion();
 
-  constructor(private readonly cfg: Readonly<Config>) {
+  constructor(
+    private readonly cfg: Readonly<Config>,
+    readonly opts: ViewOptions = { fx: true },
+  ) {
     const W = cfg.laneW;
     const H = cfg.laneH;
     this.rig.name = 'PlayRig';
@@ -117,13 +124,9 @@ export class PlayWindow {
     frame.position.z = Z.frame + 0.13; // in front of obstacle faces so edges look clean
     frame.name = 'Frame';
 
-    // --- bird: placeholder sphere (the Joud model replaces it in prompt 03) ---
-    this.bird = new Mesh(
-      new SphereGeometry(cfg.birdRadius, 24, 16),
-      new MeshLambertMaterial({ color: '#f28c28', emissive: '#000000' }),
-    );
-    this.bird.name = 'Bird';
-    this.bird.position.set(cfg.birdX, 0, Z.bird);
+    // --- bird: placeholder Joud until the GLB loads (src/scene/bird.ts) ---
+    this.bird = new Bird(opts.fx);
+    this.bird.root.position.set(cfg.birdX, 0, Z.bird);
 
     // --- obstacles: 5 pairs, one shared unit box, scaled per frame ---
     const box = new BoxGeometry(1, 1, 0.2);
@@ -159,7 +162,7 @@ export class PlayWindow {
     this.hud.mesh.position.set(-W / 2 - 0.5, H / 2 - 0.1, Z.panel);
     this.hud.mesh.rotation.y = 20 * DEG;
 
-    this.rig.add(laneBg, frame, this.bird);
+    this.rig.add(laneBg, frame, this.bird.root);
     for (const p of [this.attract, this.gameOver, this.paused, this.ready, this.score, this.hud]) {
       this.rig.add(p.mesh);
       p.visible = false;
@@ -215,11 +218,11 @@ export class PlayWindow {
   }
 
   onFlap(): void {
-    this.squash = 1;
+    this.bird.onFlap();
   }
 
   onHit(): void {
-    this.flash = 1;
+    this.bird.onHit();
   }
 
   /** Copy core state to meshes. `dt` drives cosmetic animation only. */
@@ -250,18 +253,6 @@ export class PlayWindow {
       bottom.scale.set(w, Math.max(0.001, gapBottom + halfH), 1);
     }
 
-    // Bird: bob while waiting, squash on flap, tilt with vertical speed, flash on hit.
-    const idle = game.state === 'attract' || game.state === 'ready';
-    const bob = idle ? Math.sin(time * 3) * 0.04 : 0;
-    this.bird.position.y = game.bird.y + bob;
-    this.squash = Math.max(0, this.squash - dt * 8);
-    const s = 1 - 0.18 * this.squash;
-    this.bird.scale.set(1 + 0.1 * this.squash, s, 1 + 0.1 * this.squash);
-    const tilt = Math.max(-1, Math.min(1, game.bird.vy / game.cfg.flapVelocity));
-    // Facing left (−x): nose up is a clockwise turn seen from the player.
-    this.bird.rotation.z = game.state === 'playing' ? -tilt * 30 * DEG : 0;
-    this.flash = Math.max(0, this.flash - dt * 2.5);
-    const on = this.flash > 0 && Math.floor(this.flash * 10) % 2 === 0;
-    this.bird.material.emissive.setScalar(on ? 0.8 : 0);
+    this.bird.update(game, dt, time);
   }
 }

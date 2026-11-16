@@ -60,7 +60,7 @@ export class DebugHud {
     l.push(`profile ${i.profile}`);
     l.push(`last button ${i.lastButton}   last cmd ${i.lastCmd}`);
     l.push(`calls ${i.calls}   tris ${i.tris}`);
-    l.push(`bird placeholder (model=${i.model})`);
+    l.push(`bird ${i.model}`);
     l.push(`mode ${i.mode}  best ${i.best}  speed ${i.speed.toFixed(2)}  gap ${i.gap.toFixed(2)}`);
     l.push(`err ${i.error}`);
     if (immersive) {

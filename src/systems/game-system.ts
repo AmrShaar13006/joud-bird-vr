@@ -14,6 +14,7 @@ import {
 import { type Config, configFor, type Mode, MODES, parseUrl, type UrlFlags } from '../core/config';
 import { Game } from '../core/game';
 import { type GameCommand, InputBus } from '../core/input';
+import { JOUD_GLB_URL } from '../scene/bird';
 import { DebugHud } from '../scene/debug-hud';
 import { attachDesktopInput } from '../scene/desktop-input';
 import { createOverlay } from '../scene/overlay';
@@ -74,7 +75,8 @@ export class GameSystem extends createSystem({}) {
     const cfg = configFor(url.mode, url.overrides);
     this.game = new Game(cfg, { best: loadBest(url.mode), mode: url.mode });
     this.bus = new InputBus();
-    this.view = new PlayWindow(cfg);
+    this.view = new PlayWindow(cfg, { fx: url.flags.fx });
+    if (url.flags.model === 'joud') void this.view.bird.load(JOUD_GLB_URL);
 
     this.world.createTransformEntity(this.view.environment, { persistent: true });
     const rigEntity = this.world.createTransformEntity(this.view.rig, { persistent: true });
@@ -376,7 +378,7 @@ export class GameSystem extends createSystem({}) {
         lastCmd: this.bus.last ?? '-',
         calls: info.calls,
         tris: info.triangles,
-        model: this.flags.model,
+        model: this.view.bird.status,
         mode: g.mode,
         best: g.best,
         speed: g.speed,

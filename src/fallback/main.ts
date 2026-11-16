@@ -6,6 +6,7 @@ import { PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer } from 'th
 import { configFor, parseUrl } from '../core/config';
 import { Game } from '../core/game';
 import { type GameCommand, InputBus } from '../core/input';
+import { JOUD_GLB_URL } from '../scene/bird';
 import { DebugHud } from '../scene/debug-hud';
 import { attachDesktopInput } from '../scene/desktop-input';
 import { createOverlay } from '../scene/overlay';
@@ -35,7 +36,8 @@ renderer.xr.setFoveation(1);
 container.appendChild(renderer.domElement);
 
 const scene = new Scene();
-const view = new PlayWindow(cfg);
+const view = new PlayWindow(cfg, { fx: url.flags.fx });
+if (url.flags.model === 'joud') void view.bird.load(JOUD_GLB_URL);
 scene.add(view.environment, view.rig); // recentre and mode buttons stay out (IWSDK build only)
 
 const DESKTOP_EYE = new Vector3(0, 1.2, 0);
@@ -212,7 +214,7 @@ renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
         lastCmd: bus.last ?? '-',
         calls: info.calls,
         tris: info.triangles,
-        model: url.flags.model,
+        model: view.bird.status,
         mode: game.mode,
         best: game.best,
         speed: game.speed,
