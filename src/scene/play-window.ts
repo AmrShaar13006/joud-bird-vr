@@ -208,9 +208,10 @@ export class PlayWindow {
     this.attract.mesh.position.set(PANEL_X, 0.1, Z.panel);
     this.gameOver.mesh.position.set(PANEL_X, 0.1, Z.panel);
     this.paused.mesh.position.set(PANEL_X, 0, Z.panel);
-    this.ready.mesh.position.set(0, -H / 2 - 0.22, Z.panel);
+    // Inside the lane bottom (empty during Ready), clear of the flower strip below the window.
+    this.ready.mesh.position.set(0, -H / 2 + 0.16, Z.panel);
     this.score.mesh.position.set(0, H / 2 + 0.18, Z.panel);
-    this.recentre.mesh.position.set(0, -H / 2 - 0.22, Z.button);
+    this.recentre.mesh.position.set(PANEL_X, -H / 2 + 0.14, Z.button);
     this.hud.mesh.position.set(-W / 2 - 0.5, H / 2 - 0.1, Z.panel);
     this.hud.mesh.rotation.y = 20 * DEG;
 
