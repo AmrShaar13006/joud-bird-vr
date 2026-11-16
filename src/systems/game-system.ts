@@ -14,6 +14,7 @@ import {
 import { type Config, configFor, type Mode, MODES, parseUrl, type UrlFlags } from '../core/config';
 import { Game } from '../core/game';
 import { type GameCommand, InputBus } from '../core/input';
+import { Sfx } from '../scene/audio';
 import { JOUD_GLB_URL } from '../scene/bird';
 import { DebugHud } from '../scene/debug-hud';
 import { attachDesktopInput } from '../scene/desktop-input';
@@ -44,6 +45,8 @@ export class GameSystem extends createSystem({}) {
   private panels!: PanelController;
   private hud: DebugHud | null = null;
   private recentreEntity!: Entity;
+  private muteEntity!: Entity;
+  private sfx!: Sfx;
   private modeEntities = {} as Record<Mode, Entity>;
   private modeMeshes: Mesh[] = [];
   /** Ray targets on the attract screen: recentre + mode buttons. */
@@ -75,6 +78,7 @@ export class GameSystem extends createSystem({}) {
     const cfg = configFor(url.mode, url.overrides);
     this.game = new Game(cfg, { best: loadBest(url.mode), mode: url.mode });
     this.bus = new InputBus();
+    this.sfx = new Sfx(url.flags.mute);
     this.view = new PlayWindow(cfg, { fx: url.flags.fx });
     if (url.flags.model === 'joud') void this.view.bird.load(JOUD_GLB_URL);
 
@@ -94,12 +98,16 @@ export class GameSystem extends createSystem({}) {
       this.modeEntities[m] = attachButton(this.view.modeButtons[m].mesh);
       this.modeMeshes.push(this.view.modeButtons[m].mesh);
     }
-    this.attractTargets = [this.view.recentre.mesh, ...this.modeMeshes];
+    this.muteEntity = attachButton(this.view.muteButton.mesh);
+    this.attractTargets = [this.view.recentre.mesh, this.view.muteButton.mesh, ...this.modeMeshes];
 
     this.renderer.xr.setFoveation(1);
 
-    const overlay = createOverlay(() => this.world.launchXR(), STRINGS.desktopHint);
-    this.panels = new PanelController(this.view, overlay, { picker: true, recentre: true });
+    const overlay = createOverlay(() => {
+      this.sfx.unlock(); // the Enter VR click is a user gesture
+      this.world.launchXR();
+    }, STRINGS.desktopHint);
+    this.panels = new PanelController(this.view, overlay, { picker: true, recentre: true, mute: true });
     this.cleanupFuncs.push(
       this.world.visibilityState.subscribe((v) => this.onVisibility(v)),
       attachDesktopInput(
@@ -113,6 +121,8 @@ export class GameSystem extends createSystem({}) {
         {
           onModeKey: (i) => this.selectMode(MODES[i]),
           pick: (x, y) => this.pickModeButton(x, y),
+          onMuteKey: () => this.toggleMute(),
+          onGesture: () => this.sfx.unlock(),
         },
       ),
     );
@@ -120,6 +130,12 @@ export class GameSystem extends createSystem({}) {
     const onError = (e: ErrorEvent) => (this.lastError = String(e.message).slice(0, 60));
     const onRejection = (e: PromiseRejectionEvent) =>
       (this.lastError = String(e.reason).slice(0, 60));
+    // Re-fit the desktop window after a resize (TV, window snap, a page loaded while hidden).
+    const onResize = () => {
+      this.needsDesktopPlacement = true;
+    };
+    window.addEventListener('resize', onResize);
+    this.cleanupFuncs.push(() => window.removeEventListener('resize', onResize));
     window.addEventListener('error', onError);
     window.addEventListener('unhandledrejection', onRejection);
     this.cleanupFuncs.push(
@@ -137,6 +153,7 @@ export class GameSystem extends createSystem({}) {
         rig: this.view.rig,
         view: this.view,
         camera: this.camera,
+        sfx: this.sfx,
       };
     }
   }
@@ -154,7 +171,7 @@ export class GameSystem extends createSystem({}) {
     this.game.advance(delta);
     this.consumeEvents();
     this.view.sync(this.game, delta, time);
-    this.panels.update(this.game, this.immersive);
+    this.panels.update(this.game, this.immersive, this.sfx.muted);
     this.updateHover();
     if (this.hud?.tick(delta)) this.showHud();
   }
@@ -200,6 +217,7 @@ export class GameSystem extends createSystem({}) {
   /** Trigger on either controller (session event, not polling). */
   private readonly onSelectStart = (e: XRInputSourceEvent): void => {
     this.lastProfile = e.inputSource.profiles[0] ?? '-';
+    this.sfx.unlock(); // the trigger is a user gesture
     if (this.game.state === 'attract' && this.handleAttractTarget(e)) return;
     this.bus.push('flap');
   };
@@ -214,6 +232,7 @@ export class GameSystem extends createSystem({}) {
     const hit = this.rayHit(e);
     if (hit === undefined) {
       if (this.recentreEntity.hasComponent(Hovered)) return this.recentre();
+      if (this.muteEntity.hasComponent(Hovered)) return this.toggleMute();
       for (const m of MODES) {
         if (this.modeEntities[m].hasComponent(Hovered)) {
           this.selectMode(m);
@@ -224,6 +243,7 @@ export class GameSystem extends createSystem({}) {
     }
     if (hit === null) return false;
     if (hit === this.view.recentre.mesh) return this.recentre();
+    if (hit === this.view.muteButton.mesh) return this.toggleMute();
     const mode = MODES.find((m) => this.view.modeButtons[m].mesh === hit);
     if (!mode) return false;
     this.selectMode(mode);
@@ -232,6 +252,19 @@ export class GameSystem extends createSystem({}) {
 
   private recentre(): boolean {
     this.needsXRPlacement = true;
+    this.sfx.click();
+    return true;
+  }
+
+  /** Click first when muting, after when un-muting, so both give feedback. */
+  private toggleMute(): boolean {
+    if (this.sfx.muted) {
+      this.sfx.setMuted(false);
+      this.sfx.click();
+    } else {
+      this.sfx.click();
+      this.sfx.setMuted(true);
+    }
     return true;
   }
 
@@ -276,7 +309,7 @@ export class GameSystem extends createSystem({}) {
   /** Switch mode between rounds (Attract screen only); loads that mode's best. */
   private selectMode(mode: Mode | undefined): void {
     if (!mode || this.game.state !== 'attract' || mode === this.game.mode) return;
-    this.game.configure(configFor(mode, this.overrides), mode, loadBest(mode));
+    if (this.game.configure(configFor(mode, this.overrides), mode, loadBest(mode))) this.sfx.click();
   }
 
   /** Desktop click/touch on a mode button. Returns true if it hit one. */
@@ -288,8 +321,10 @@ export class GameSystem extends createSystem({}) {
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hit = this.raycaster.intersectObjects(this.modeMeshes, false)[0];
+    const hit = this.raycaster.intersectObjects(this.attractTargets, false)[0];
     if (!hit) return false;
+    if (hit.object === this.view.recentre.mesh) return false; // VR only
+    if (hit.object === this.view.muteButton.mesh) return this.toggleMute();
     this.selectMode(MODES.find((m) => this.view.modeButtons[m].mesh === hit.object));
     return true;
   }
@@ -302,6 +337,7 @@ export class GameSystem extends createSystem({}) {
       this.view.modeButtons[m].mesh.scale.setScalar(hovered ? 1.08 : 1);
     }
     this.view.recentre.mesh.scale.setScalar(this.recentreEntity.hasComponent(Hovered) ? 1.08 : 1);
+    this.view.muteButton.mesh.scale.setScalar(this.muteEntity.hasComponent(Hovered) ? 1.08 : 1);
   }
 
   // ---------- placement ----------
@@ -334,9 +370,14 @@ export class GameSystem extends createSystem({}) {
       switch (events[i]) {
         case 'flap':
           this.view.onFlap();
+          this.sfx.flap();
+          break;
+        case 'score':
+          this.sfx.score(this.game.score);
           break;
         case 'hit':
           this.view.onHit();
+          this.sfx.hit();
           this.pulse();
           break;
         case 'newBest':
@@ -383,6 +424,7 @@ export class GameSystem extends createSystem({}) {
         best: g.best,
         speed: g.speed,
         gap: g.gap,
+        sound: this.sfx.muted ? 'muted' : this.sfx.unlocked ? 'on' : 'waiting for a gesture',
         error: this.lastError,
       },
       this.immersive,

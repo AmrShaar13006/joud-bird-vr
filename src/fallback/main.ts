@@ -6,6 +6,7 @@ import { PerspectiveCamera, Quaternion, Scene, Vector3, WebGLRenderer } from 'th
 import { configFor, parseUrl } from '../core/config';
 import { Game } from '../core/game';
 import { type GameCommand, InputBus } from '../core/input';
+import { Sfx } from '../scene/audio';
 import { JOUD_GLB_URL } from '../scene/bird';
 import { DebugHud } from '../scene/debug-hud';
 import { attachDesktopInput } from '../scene/desktop-input';
@@ -24,6 +25,7 @@ const url = parseUrl(window.location.search);
 const cfg = configFor(url.mode, url.overrides); // mode via ?mode= only (no picker here)
 const game = new Game(cfg, { best: loadBest(url.mode), mode: url.mode });
 const bus = new InputBus();
+const sfx = new Sfx(url.flags.mute);
 const handle = (cmd: GameCommand) => game.handle(cmd);
 
 // ---------- renderer, scene, camera ----------
@@ -65,8 +67,11 @@ window.addEventListener('resize', () => {
 });
 
 // ---------- 2D page, panels, HUD ----------
-const overlay = createOverlay(() => void enterVR(), STRINGS.desktopHintNoPicker);
-const panels = new PanelController(view, overlay, { picker: false, recentre: false });
+const overlay = createOverlay(() => {
+  sfx.unlock(); // the Enter VR click is a user gesture
+  void enterVR();
+}, STRINGS.desktopHintNoPicker);
+const panels = new PanelController(view, overlay, { picker: false, recentre: false, mute: false });
 const hud = url.flags.debug ? new DebugHud(view.hud) : null;
 let lastProfile = '-';
 let lastButton = -1;
@@ -110,6 +115,7 @@ async function enterVR(): Promise<void> {
 /** Trigger on either controller = flap/start (session event, not polling). */
 function onSelectStart(e: XRInputSourceEvent): void {
   lastProfile = e.inputSource.profiles[0] ?? '-';
+  sfx.unlock();
   bus.push('flap');
 }
 
@@ -173,6 +179,7 @@ attachDesktopInput(
   () => {
     if (!session) game.suspend();
   },
+  { onMuteKey: () => sfx.toggleMute(), onGesture: () => sfx.unlock() },
 );
 
 // ---------- loop: fixed 1/120 s steps inside setAnimationLoop, clamped at 0.1 s ----------
@@ -193,14 +200,19 @@ renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
   bus.drain(handle);
   game.advance(delta); // Game steps at cfg.step (1/120 s) and clamps to cfg.maxFrame (0.1 s)
   for (const e of game.events) {
-    if (e === 'flap') view.onFlap();
-    else if (e === 'hit') view.onHit();
-    else if (e === 'newBest') saveBest(game.mode, game.best);
+    if (e === 'flap') {
+      view.onFlap();
+      sfx.flap();
+    } else if (e === 'score') sfx.score(game.score);
+    else if (e === 'hit') {
+      view.onHit();
+      sfx.hit();
+    } else if (e === 'newBest') saveBest(game.mode, game.best);
   }
   game.events.length = 0;
 
   view.sync(game, delta, time / 1000);
-  panels.update(game, immersive);
+  panels.update(game, immersive, sfx.muted);
   if (hud?.tick(delta)) {
     const info = renderer.info.render;
     hud.show(
@@ -219,6 +231,7 @@ renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
         best: game.best,
         speed: game.speed,
         gap: game.gap,
+        sound: sfx.muted ? 'muted' : sfx.unlocked ? 'on' : 'waiting for a gesture',
         error: lastError,
       },
       immersive,
@@ -229,5 +242,5 @@ renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
 
 if (url.flags.debug) {
   // ?debug=1 only: lets emulator/desktop checks read game state.
-  (window as unknown as { joudBird: unknown }).joudBird = { game, renderer, rig: view.rig, view, camera };
+  (window as unknown as { joudBird: unknown }).joudBird = { game, renderer, rig: view.rig, view, camera, sfx };
 }

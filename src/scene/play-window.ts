@@ -84,6 +84,8 @@ export class PlayWindow {
   readonly hud: CanvasPanel;
   /** Mode picker buttons (Attract screen). Parented by the shell. */
   readonly modeButtons: Record<Mode, CanvasPanel>;
+  /** Mute toggle (Attract screen), left of the mode buttons. Parented by the shell. */
+  readonly muteButton: CanvasPanel;
 
   private readonly tmpFwd = new Vector3();
   private readonly tmpPos = new Vector3();
@@ -223,6 +225,9 @@ export class PlayWindow {
       buttons[m] = b;
     }
     this.modeButtons = buttons;
+    this.muteButton = new CanvasPanel(0.36, 0.2, 512, 288, 'MuteButton');
+    this.muteButton.mesh.position.set(modeX.hard - 0.45, -0.42, Z.button);
+    this.muteButton.visible = false;
 
     // The recentre and mode buttons are parented by the shell: in IWSDK each
     // needs its own entity (RayInteractable).

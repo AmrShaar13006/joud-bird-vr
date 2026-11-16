@@ -150,6 +150,20 @@ export function modeButtonArt(mode: Mode, selected: boolean, input: InputMode): 
   };
 }
 
+/** Mute toggle on the Attract panel. */
+export function muteButtonArt(muted: boolean, input: InputMode): DrawFn {
+  return (ctx, w, h) => {
+    ctx.fillStyle = muted ? COLORS.panelAlt : COLORS.panel;
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = COLORS.text;
+    ctx.lineWidth = 6;
+    ctx.strokeRect(3, 3, w - 6, h - 6);
+    const y = input === 'desktop' ? h * 0.42 : h * 0.52;
+    line(ctx, muted ? S.soundOff : S.soundOn, w / 2, y, h * 0.28, { ar: true });
+    if (input === 'desktop') line(ctx, S.muteKey, w / 2, h * 0.8, h * 0.18, { weight: 'normal' });
+  };
+}
+
 export function recentreArt(): DrawFn {
   return (ctx, w, h) => {
     ctx.fillStyle = COLORS.panel;
