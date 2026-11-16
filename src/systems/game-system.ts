@@ -374,6 +374,7 @@ export class GameSystem extends createSystem({}) {
           break;
         case 'score':
           this.sfx.score(this.game.score);
+          this.view.onScore(this.game.bird.y);
           break;
         case 'hit':
           this.view.onHit();

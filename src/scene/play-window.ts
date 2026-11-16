@@ -26,6 +26,7 @@ import { type Config, type Mode, MODES } from '../core/config';
 import type { Game } from '../core/game';
 import { POOL_SIZE } from '../core/obstacles';
 import { Bird } from './bird';
+import { ScoreBurst } from './burst';
 import { CanvasPanel } from './canvas-panel';
 import { setPanelFx } from './panel-art';
 import { BRAND, buildFlowerStrip, buildFrameSparkles } from './scenery';
@@ -73,6 +74,8 @@ export class PlayWindow {
   readonly flowers: Mesh;
   readonly sparkles: Mesh;
   readonly bird: Bird;
+  /** Score juice: pooled petal/sparkle burst (fx only). */
+  readonly burst: ScoreBurst;
   /** All obstacle blocks as stacked boxes in one instanced draw call. */
   readonly boxes: InstancedMesh;
   readonly attract: CanvasPanel;
@@ -94,6 +97,7 @@ export class PlayWindow {
   private readonly boxPos = new Vector3();
   private readonly boxScale = new Vector3();
   private readonly noRot = new Quaternion();
+  private scorePop = 0;
 
   constructor(
     private readonly cfg: Readonly<Config>,
@@ -210,7 +214,10 @@ export class PlayWindow {
     this.hud.mesh.position.set(-W / 2 - 0.5, H / 2 - 0.1, Z.panel);
     this.hud.mesh.rotation.y = 20 * DEG;
 
-    this.rig.add(laneBg, frame, this.sparkles, this.boxes, this.bird.root);
+    this.burst = new ScoreBurst(Z.panel - 0.03); // in front of the boxes, behind the panels
+    this.burst.mesh.visible = opts.fx;
+
+    this.rig.add(laneBg, frame, this.sparkles, this.boxes, this.bird.root, this.burst.mesh);
     for (const p of [this.attract, this.gameOver, this.paused, this.ready, this.score, this.hud]) {
       this.rig.add(p.mesh);
       p.visible = false;
@@ -281,6 +288,13 @@ export class PlayWindow {
     this.bird.onHit();
   }
 
+  /** A point: burst of petals at the bird and a gentle pop on the score (fx only). */
+  onScore(birdY: number): void {
+    if (!this.opts.fx) return;
+    this.burst.spawn(this.cfg.birdX, birdY);
+    this.scorePop = 1;
+  }
+
   /** Copy core state to meshes. `dt` drives cosmetic animation only. */
   sync(game: Game, dt: number, time: number): void {
     const cfg = this.cfg;
@@ -307,7 +321,17 @@ export class PlayWindow {
     this.boxes.instanceMatrix.needsUpdate = true;
     if (this.boxes.instanceColor) this.boxes.instanceColor.needsUpdate = true;
 
-    this.bird.update(game, dt, time);
+    // Cosmetic time step, clamped so a hitch never makes effects jump.
+    const fxDt = Math.min(dt, 0.05);
+    this.bird.update(game, fxDt, time);
+
+    if (this.opts.fx) {
+      this.burst.update(fxDt);
+      // gentle pop: up to +18 %, eased back over ~0.3 s
+      this.scorePop = Math.max(0, this.scorePop - fxDt * 3.5);
+      const k = this.scorePop;
+      this.score.mesh.scale.setScalar(1 + 0.18 * k * k);
+    }
   }
 
   /** Boxes from `from` (gap edge) towards `to` (lane edge), `dir` = ±1. */

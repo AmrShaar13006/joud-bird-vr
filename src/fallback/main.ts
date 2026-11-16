@@ -203,7 +203,10 @@ renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
     if (e === 'flap') {
       view.onFlap();
       sfx.flap();
-    } else if (e === 'score') sfx.score(game.score);
+    } else if (e === 'score') {
+      sfx.score(game.score);
+      view.onScore(game.bird.y);
+    }
     else if (e === 'hit') {
       view.onHit();
       sfx.hit();
