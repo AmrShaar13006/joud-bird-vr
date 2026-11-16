@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { bestStorageKey, dayKey, parseBest } from './best';
-import { CFG, type Config, gapForScore, parseOverrides, speedForScore } from './config';
+import {
+  CFG,
+  type Config,
+  configFor,
+  DEFAULT_MODE,
+  gapForScore,
+  isMode,
+  MODES,
+  PRESETS,
+  parseUrl,
+  speedForScore,
+} from './config';
 import { Game } from './game';
 import { InputBus } from './input';
 import { ObstacleField, POOL_SIZE } from './obstacles';
@@ -33,11 +44,13 @@ describe('config', () => {
     expect(CFG.laneW).toBe(2.8);
     expect(CFG.laneH).toBe(1.6);
     expect(CFG.step).toBeCloseTo(1 / 120);
+    expect(CFG.softBounds).toBe(false);
     expect(Object.isFrozen(CFG)).toBe(true);
   });
 
   it('applies URL overrides for g, flap, gap, speed, dist, h', () => {
-    const { cfg: c, applied } = parseOverrides('?g=-4&flap=2.5&gap=0.8&speed=1.3&dist=2&h=-0.2');
+    const { overrides, applied } = parseUrl('?g=-4&flap=2.5&gap=0.8&speed=1.3&dist=2&h=-0.2');
+    const c = configFor('hard', overrides);
     expect(c.gravity).toBe(-4);
     expect(c.flapVelocity).toBe(2.5);
     expect(c.gapStart).toBe(0.8);
@@ -48,32 +61,26 @@ describe('config', () => {
   });
 
   it('ignores invalid, empty and out-of-range values', () => {
-    const { cfg: c, applied } = parseOverrides('?g=abc&flap=&gap=5&speed=-1&dist=NaN&h=0.1');
-    expect(c.gravity).toBe(CFG.gravity);
-    expect(c.flapVelocity).toBe(CFG.flapVelocity);
-    expect(c.gapStart).toBe(CFG.gapStart);
-    expect(c.speedStart).toBe(CFG.speedStart);
-    expect(c.rigDistance).toBe(CFG.rigDistance);
-    expect(c.rigHeight).toBe(0.1);
+    const { overrides, applied } = parseUrl('?g=abc&flap=&gap=5&speed=-1&dist=NaN&h=0.1');
+    expect(overrides).toEqual({ rigHeight: 0.1 });
     expect(applied).toEqual(['h']);
   });
 
   it('keeps the difficulty curve valid when the start is overridden', () => {
-    const narrow = parseOverrides('?gap=0.4').cfg;
-    expect(narrow.gapMin).toBe(0.4);
-    const fast = parseOverrides('?speed=2').cfg;
-    expect(fast.speedMax).toBe(2);
+    expect(configFor('hard', parseUrl('?gap=0.4').overrides).gapMin).toBe(0.4);
+    expect(configFor('hard', parseUrl('?speed=2').overrides).speedMax).toBe(2);
   });
 
   it('reads debug and model flags', () => {
-    expect(parseOverrides('').flags).toEqual({ debug: false, model: 'placeholder' });
-    expect(parseOverrides('?debug=1&model=joud').flags).toEqual({ debug: true, model: 'joud' });
-    expect(parseOverrides('?model=other').flags.model).toBe('placeholder');
+    expect(parseUrl('').flags).toEqual({ debug: false, model: 'placeholder' });
+    expect(parseUrl('?debug=1&model=joud').flags).toEqual({ debug: true, model: 'joud' });
+    expect(parseUrl('?model=other').flags.model).toBe('placeholder');
   });
 
-  it('does not mutate the base config', () => {
-    parseOverrides('?g=-9');
+  it('does not mutate the base config or the presets', () => {
+    configFor('easy', parseUrl('?g=-9&gap=0.9').overrides);
     expect(CFG.gravity).toBe(-5.5);
+    expect(PRESETS.easy.gapStart).toBe(1.0);
   });
 
   it('shrinks the gap and raises the speed with score, up to the caps', () => {
@@ -83,6 +90,71 @@ describe('config', () => {
     expect(speedForScore(0, CFG)).toBeCloseTo(1.1);
     expect(speedForScore(10, CFG)).toBeCloseTo(1.3);
     expect(speedForScore(100, CFG)).toBe(CFG.speedMax);
+  });
+});
+
+describe('difficulty modes', () => {
+  it('lists three modes with normal as the default', () => {
+    expect(MODES).toEqual(['easy', 'normal', 'hard']);
+    expect(DEFAULT_MODE).toBe('normal');
+    expect(parseUrl('').mode).toBe('normal');
+    expect(isMode('easy')).toBe(true);
+    expect(isMode('EASY')).toBe(false);
+  });
+
+  it('?mode= sets the default; unknown values fall back to normal', () => {
+    expect(parseUrl('?mode=easy').mode).toBe('easy');
+    expect(parseUrl('?mode=hard').mode).toBe('hard');
+    expect(parseUrl('?mode=insane').mode).toBe('normal');
+    expect(parseUrl('?mode=easy').applied).toContain('mode');
+  });
+
+  it('easy: flap 1.7, fixed gap 1.00, fixed speed 0.9, spacing 1.6, soft bounds, no ramp', () => {
+    const c = configFor('easy');
+    expect(c.flapVelocity).toBe(1.7);
+    expect(c.spacing).toBe(1.6);
+    expect(c.softBounds).toBe(true);
+    for (const score of [0, 10, 100]) {
+      expect(gapForScore(score, c)).toBe(1.0);
+      expect(speedForScore(score, c)).toBe(0.9);
+    }
+  });
+
+  it('normal: flap 1.9, gap 0.85 → 0.65, speed 1.0 → 1.3, hard bounds', () => {
+    const c = configFor('normal');
+    expect(c.flapVelocity).toBe(1.9);
+    expect(c.spacing).toBe(CFG.spacing);
+    expect(c.softBounds).toBe(false);
+    expect(gapForScore(0, c)).toBe(0.85);
+    expect(gapForScore(100, c)).toBe(0.65);
+    expect(speedForScore(0, c)).toBe(1.0);
+    expect(speedForScore(100, c)).toBe(1.3);
+    expect(gapForScore(10, c)).toBeCloseTo(0.75);
+  });
+
+  it('hard: the original spec values', () => {
+    const c = configFor('hard');
+    expect(c).toEqual({ ...CFG });
+    expect(c.flapVelocity).toBe(2.1);
+    expect(gapForScore(0, c)).toBe(0.7);
+    expect(gapForScore(100, c)).toBe(0.52);
+    expect(speedForScore(0, c)).toBe(1.1);
+    expect(speedForScore(100, c)).toBe(1.5);
+  });
+
+  it('URL overrides win over every preset', () => {
+    const { overrides } = parseUrl('?flap=2.4&gap=0.9&speed=1.2&g=-4');
+    for (const m of MODES) {
+      const c = configFor(m, overrides);
+      expect(c.flapVelocity).toBe(2.4);
+      expect(c.gapStart).toBe(0.9);
+      expect(c.speedStart).toBe(1.2);
+      expect(c.gravity).toBe(-4);
+    }
+    // easy stays ramp-free: the overridden gap and speed hold for every score
+    const easy = configFor('easy', overrides);
+    expect(gapForScore(50, easy)).toBe(0.9);
+    expect(speedForScore(50, easy)).toBe(1.2);
   });
 });
 
@@ -422,11 +494,99 @@ describe('game state machine', () => {
   });
 });
 
+describe('game with difficulty modes', () => {
+  it('easy: the floor bounces the bird instead of ending the round', () => {
+    const g = new Game(configFor('easy'), { rng: fixed(0.5), mode: 'easy' });
+    g.handle('start');
+    g.handle('flap');
+    let bounced = false;
+    // 1.9 s: the bird hits the floor at ~0.9 s; the first pair reaches it at ~2.1 s.
+    for (let i = 0; i < 228; i++) {
+      g.step(g.cfg.step);
+      if (g.events.includes('bounce')) bounced = true;
+      g.events.length = 0;
+      expect(g.bird.y - g.cfg.birdRadius).toBeGreaterThanOrEqual(-g.cfg.laneH / 2 - 1e-9);
+    }
+    expect(bounced).toBe(true);
+    expect(g.state).toBe('playing');
+  });
+
+  it('easy: the ceiling stops the climb instead of ending the round', () => {
+    const g = new Game(configFor('easy', { gravity: -0.5 }), { rng: fixed(0.5), mode: 'easy' });
+    g.handle('start');
+    g.handle('flap');
+    run(g, 120 * 2);
+    expect(g.state).toBe('playing');
+    expect(g.bird.y + g.cfg.birdRadius).toBeLessThanOrEqual(g.cfg.laneH / 2 + 1e-9);
+  });
+
+  it('easy: obstacles still end the round', () => {
+    const g = new Game(configFor('easy', { gravity: -0.0001, flapVelocity: 0 }), {
+      rng: fixed(0.5),
+      mode: 'easy',
+    });
+    g.handle('start');
+    g.handle('flap');
+    g.bird.y = 0.6; // above the 1.0 m gap centred at 0 (top edge at 0.5)
+    run(g, 120 * 5);
+    expect(g.state).toBe('gameOver');
+  });
+
+  it('normal and hard: floor still ends the round', () => {
+    for (const m of ['normal', 'hard'] as const) {
+      const g = new Game(configFor(m), { rng: fixed(0.5), mode: m });
+      g.handle('start');
+      g.handle('flap');
+      run(g, 120 * 3);
+      expect(g.state).toBe('gameOver');
+    }
+  });
+
+  it('easy scores through its wide gaps at the slower speed', () => {
+    const g = new Game(configFor('easy', { gravity: -0.0001, flapVelocity: 0 }), {
+      rng: fixed(0.5),
+      mode: 'easy',
+    });
+    g.handle('start');
+    g.handle('flap');
+    run(g, 120 * 10);
+    expect(g.state).toBe('playing');
+    // 10 s at 0.9 m/s with 1.6 m spacing; the first pair needs ~2.4 m to pass the bird.
+    expect(g.score).toBeGreaterThanOrEqual(3);
+    expect(g.speed).toBe(0.9);
+    expect(g.gap).toBe(1.0);
+  });
+
+  it('configure switches mode, config and best only on the attract screen', () => {
+    const g = new Game(configFor('normal'), { rng: fixed(0.5), best: 4, mode: 'normal' });
+    expect(g.mode).toBe('normal');
+    expect(g.configure(configFor('easy'), 'easy', 9)).toBe(true);
+    expect(g.mode).toBe('easy');
+    expect(g.best).toBe(9);
+    expect(g.cfg.softBounds).toBe(true);
+    expect(g.events).toContain('mode');
+    expect(g.state).toBe('attract');
+
+    g.handle('start');
+    expect(g.configure(configFor('hard'), 'hard', 1)).toBe(false);
+    expect(g.mode).toBe('easy');
+    g.handle('flap');
+    run(g, 120 * 3);
+    expect(g.configure(configFor('hard'), 'hard', 1)).toBe(false);
+
+    g.toAttract();
+    expect(g.configure(configFor('hard'), 'hard', 1)).toBe(true);
+    expect(g.cfg.flapVelocity).toBe(2.1);
+    expect(g.field.activeCount()).toBe(0);
+  });
+});
+
 describe('best of the day', () => {
   it('builds a per-day storage key', () => {
     const d = new Date(2026, 10, 17, 16, 0);
     expect(dayKey(d)).toBe('2026-11-17');
-    expect(bestStorageKey(d)).toBe('joudbird.best.2026-11-17');
+    expect(bestStorageKey(d, 'easy')).toBe('joudbird.best.easy.2026-11-17');
+    expect(bestStorageKey(d, 'hard')).toBe('joudbird.best.hard.2026-11-17');
   });
 
   it('parses stored values defensively', () => {

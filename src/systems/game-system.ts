@@ -2,12 +2,16 @@ import {
   createSystem,
   type Entity,
   Hovered,
+  Matrix4,
+  type Mesh,
   Quaternion,
   RayInteractable,
+  Raycaster,
+  Vector2,
   Vector3,
   VisibilityState,
 } from '@iwsdk/core';
-import { type Config, parseOverrides, type UrlFlags } from '../core/config';
+import { type Config, configFor, type Mode, MODES, parseUrl, type UrlFlags } from '../core/config';
 import { Game, type GameState } from '../core/game';
 import { type GameCommand, InputBus } from '../core/input';
 import { createOverlay, type Overlay } from '../scene/overlay';
@@ -15,7 +19,8 @@ import {
   attractArt,
   gameOverArt,
   hudArt,
-  type Mode,
+  type InputMode,
+  modeButtonArt,
   pausedArt,
   readyArt,
   recentreArt,
@@ -23,6 +28,7 @@ import {
 } from '../scene/panel-art';
 import { PlayWindow } from '../scene/play-window';
 import { loadBest, saveBest } from '../scene/storage';
+import { STRINGS } from '../scene/strings';
 import { attachDesktopInput } from './desktop-input';
 
 const HANDS = ['left', 'right'] as const;
@@ -37,12 +43,23 @@ const BUTTON_PAUSE = 5;
  */
 export class GameSystem extends createSystem({}) {
   private cfg!: Config;
+  private overrides: Partial<Config> = {};
+  private defaultMode: Mode = 'normal';
   private flags!: UrlFlags;
   private game!: Game;
   private bus!: InputBus;
   private view!: PlayWindow;
   private overlay!: Overlay;
   private recentreEntity!: Entity;
+  private modeEntities = {} as Record<Mode, Entity>;
+  private modeMeshes: Mesh[] = [];
+  private readonly raycaster = new Raycaster();
+  private readonly pointer = new Vector2();
+  private readonly rayMatrix = new Matrix4();
+  private readonly rayOrigin = new Vector3();
+  private readonly rayDir = new Vector3();
+  /** Ray targets on the attract screen: recentre + mode buttons. */
+  private attractTargets: Mesh[] = [];
 
   private session: XRSession | null = null;
   private immersive = false;
@@ -54,10 +71,11 @@ export class GameSystem extends createSystem({}) {
 
   // panel cache: redraw only when something visible changes
   private drawnState: GameState | '' = '';
-  private drawnMode: Mode | '' = '';
+  private drawnMode: InputMode | '' = '';
   private drawnScore = -1;
   private drawnRestart = false;
   private drawnBest = -1;
+  private drawnGameMode: Mode | '' = '';
 
   // debug HUD
   private lastProfile = '-';
@@ -71,25 +89,36 @@ export class GameSystem extends createSystem({}) {
   private readonly hudLines: string[] = [];
 
   init(): void {
-    const parsed = parseOverrides(window.location.search);
-    this.cfg = parsed.cfg;
-    this.flags = parsed.flags;
-    this.game = new Game(this.cfg, { best: loadBest() });
+    const url = parseUrl(window.location.search);
+    this.overrides = url.overrides;
+    this.defaultMode = url.mode;
+    this.cfg = configFor(url.mode, url.overrides);
+    this.flags = url.flags;
+    this.game = new Game(this.cfg, { best: loadBest(url.mode), mode: url.mode });
     this.bus = new InputBus();
     this.view = new PlayWindow(this.cfg);
 
     this.world.createTransformEntity(this.view.environment, { persistent: true });
     const rigEntity = this.world.createTransformEntity(this.view.rig, { persistent: true });
-    this.recentreEntity = this.world.createTransformEntity(this.view.recentre.mesh, {
-      parent: rigEntity,
-    });
-    this.recentreEntity.addComponent(RayInteractable);
-    this.view.recentre.mesh.position.set(0, -0.5, 0.2);
+    // Ray targets each need their own entity; keep the positions PlayWindow set.
+    const attachButton = (mesh: Mesh): Entity => {
+      const pos = mesh.position.clone();
+      const entity = this.world.createTransformEntity(mesh, { parent: rigEntity });
+      mesh.position.copy(pos);
+      entity.addComponent(RayInteractable);
+      return entity;
+    };
+    this.recentreEntity = attachButton(this.view.recentre.mesh);
     this.view.recentre.redraw(recentreArt());
+    for (const m of MODES) {
+      this.modeEntities[m] = attachButton(this.view.modeButtons[m].mesh);
+      this.modeMeshes.push(this.view.modeButtons[m].mesh);
+    }
+    this.attractTargets = [this.view.recentre.mesh, ...this.modeMeshes];
 
     this.renderer.xr.setFoveation(1);
 
-    this.overlay = createOverlay(() => this.world.launchXR());
+    this.overlay = createOverlay(() => this.world.launchXR(), STRINGS.desktopHint);
     this.cleanupFuncs.push(
       this.world.visibilityState.subscribe((v) => this.onVisibility(v)),
       attachDesktopInput(
@@ -99,6 +128,10 @@ export class GameSystem extends createSystem({}) {
         // Desktop only: in XR the session's visibility-blurred state decides.
         () => {
           if (!this.immersive) this.game.suspend();
+        },
+        {
+          onModeKey: (i) => this.selectMode(MODES[i]),
+          pick: (x, y) => this.pickModeButton(x, y),
         },
       ),
     );
@@ -122,8 +155,8 @@ export class GameSystem extends createSystem({}) {
         game: this.game,
         renderer: this.renderer,
         rig: this.view.rig,
+        view: this.view,
         camera: this.camera,
-        cfg: this.cfg,
       };
     }
   }
@@ -157,16 +190,16 @@ export class GameSystem extends createSystem({}) {
       this.needsXRPlacement = true;
       this.game.toAttract();
     } else if (!immersive && this.immersive) {
-      // Session ended: back to the Attract page for the next visitor.
+      // Session ended: back to the Attract page, in the operator's default mode.
       this.detachSession();
       this.game.toAttract();
+      this.selectMode(this.defaultMode);
       this.needsDesktopPlacement = true;
     }
     if (v === VisibilityState.VisibleBlurred || v === VisibilityState.Hidden) {
       this.game.suspend();
     }
     this.immersive = immersive;
-    this.overlay.setImmersive(immersive);
   }
 
   private attachSession(): void {
@@ -185,12 +218,86 @@ export class GameSystem extends createSystem({}) {
   /** Trigger on either controller (session event, not polling). */
   private readonly onSelectStart = (e: XRInputSourceEvent): void => {
     this.lastProfile = e.inputSource.profiles[0] ?? '-';
-    if (this.game.state === 'attract' && this.recentreEntity.hasComponent(Hovered)) {
-      this.needsXRPlacement = true;
-      return;
-    }
+    if (this.game.state === 'attract' && this.handleAttractTarget(e)) return;
     this.bus.push('flap');
   };
+
+  /**
+   * Attract screen: if the controller that pulled the trigger points at the
+   * recentre or a mode button, act on it and swallow the press. Uses that
+   * controller's own ray (both rays can rest on different buttons); falls
+   * back to IWSDK's Hovered tags if the pose is unavailable.
+   */
+  private handleAttractTarget(e: XRInputSourceEvent): boolean {
+    const hit = this.rayHit(e);
+    if (hit === undefined) {
+      if (this.recentreEntity.hasComponent(Hovered)) return this.recentre();
+      for (const m of MODES) {
+        if (this.modeEntities[m].hasComponent(Hovered)) {
+          this.selectMode(m);
+          return true;
+        }
+      }
+      return false;
+    }
+    if (hit === null) return false;
+    if (hit === this.view.recentre.mesh) return this.recentre();
+    const mode = MODES.find((m) => this.view.modeButtons[m].mesh === hit);
+    if (!mode) return false;
+    this.selectMode(mode);
+    return true;
+  }
+
+  private recentre(): boolean {
+    this.needsXRPlacement = true;
+    return true;
+  }
+
+  /** What the event's controller ray hits: a target, null for nothing, undefined if no pose. */
+  private rayHit(e: XRInputSourceEvent): Mesh | null | undefined {
+    const ref = this.world.xrReferenceSpace;
+    if (!ref) return undefined;
+    let pose: XRPose | undefined | null;
+    try {
+      pose = e.frame.getPose(e.inputSource.targetRaySpace, ref);
+    } catch {
+      return undefined;
+    }
+    if (!pose) return undefined;
+    this.player.updateMatrixWorld(true);
+    this.rayMatrix.fromArray(pose.transform.matrix).premultiply(this.player.matrixWorld);
+    this.rayOrigin.setFromMatrixPosition(this.rayMatrix);
+    this.rayDir.set(0, 0, -1).transformDirection(this.rayMatrix);
+    this.raycaster.set(this.rayOrigin, this.rayDir);
+    this.view.rig.updateMatrixWorld(true);
+    const hit = this.raycaster.intersectObjects(this.attractTargets, false)[0];
+    return hit ? (hit.object as Mesh) : null;
+  }
+
+  // ---------- difficulty ----------
+
+  /** Switch mode between rounds (Attract screen only); loads that mode's best. */
+  private selectMode(mode: Mode | undefined): void {
+    if (!mode || this.game.state !== 'attract' || mode === this.game.mode) return;
+    const cfg = configFor(mode, this.overrides);
+    if (this.game.configure(cfg, mode, loadBest(mode))) this.cfg = cfg;
+  }
+
+  /** Desktop click/touch on a mode button. Returns true if it hit one. */
+  private pickModeButton(clientX: number, clientY: number): boolean {
+    if (this.game.state !== 'attract') return false;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hit = this.raycaster.intersectObjects(this.modeMeshes, false)[0];
+    if (!hit) return false;
+    const mode = MODES.find((m) => this.view.modeButtons[m].mesh === hit.object);
+    this.selectMode(mode);
+    return true;
+  }
 
   private pollXRButtons(): void {
     const pads = this.input.xr.gamepads;
@@ -257,7 +364,7 @@ export class GameSystem extends createSystem({}) {
           this.pulse();
           break;
         case 'newBest':
-          saveBest(this.game.best);
+          saveBest(this.game.mode, this.game.best);
           break;
       }
     }
@@ -281,10 +388,11 @@ export class GameSystem extends createSystem({}) {
   private updatePanels(): void {
     const g = this.game;
     const v = this.view;
-    const mode: Mode = this.immersive ? 'xr' : 'desktop';
+    const mode: InputMode = this.immersive ? 'xr' : 'desktop';
     const st = g.state;
     const canRestart = g.canRestartWithTrigger;
-    const changed = st !== this.drawnState || mode !== this.drawnMode;
+    const changed =
+      st !== this.drawnState || mode !== this.drawnMode || g.mode !== this.drawnGameMode;
 
     if (changed || (st === 'gameOver' && canRestart !== this.drawnRestart) || g.best !== this.drawnBest) {
       v.attract.visible = st === 'attract';
@@ -293,14 +401,28 @@ export class GameSystem extends createSystem({}) {
       v.paused.visible = st === 'paused';
       v.score.visible = st !== 'attract';
       v.recentre.visible = st === 'attract' && this.immersive;
-      if (st === 'attract') v.attract.redraw(attractArt(g.best, mode));
+      this.overlay.setVisible(st === 'attract' && !this.immersive);
+      for (const m of MODES) {
+        const b = v.modeButtons[m];
+        b.visible = st === 'attract';
+        if (st === 'attract') b.redraw(modeButtonArt(m, m === g.mode, mode));
+      }
+      if (st === 'attract') v.attract.redraw(attractArt(g.best, mode, true));
       if (st === 'ready') v.ready.redraw(readyArt(mode));
-      if (st === 'gameOver') v.gameOver.redraw(gameOverArt(g.score, g.best, g.newBest, canRestart, mode));
+      if (st === 'gameOver') v.gameOver.redraw(gameOverArt(g.score, g.best, g.newBest, canRestart, g.mode, mode));
       if (st === 'paused') v.paused.redraw(pausedArt(mode));
       this.drawnState = st;
       this.drawnMode = mode;
       this.drawnRestart = canRestart;
       this.drawnBest = g.best;
+      this.drawnGameMode = g.mode;
+    }
+    // Hovered ray targets grow a little so the player sees what the trigger will press.
+    if (st === 'attract' && this.immersive) {
+      for (const m of MODES) {
+        v.modeButtons[m].mesh.scale.setScalar(this.modeEntities[m].hasComponent(Hovered) ? 1.08 : 1);
+      }
+      v.recentre.mesh.scale.setScalar(this.recentreEntity.hasComponent(Hovered) ? 1.08 : 1);
     }
     if (g.score !== this.drawnScore) {
       v.score.redraw(scoreArt(g.score));
@@ -330,7 +452,7 @@ export class GameSystem extends createSystem({}) {
     l.push(`last button ${this.lastButton}   last cmd ${this.bus.last ?? '-'}`);
     l.push(`calls ${info.calls}   tris ${info.triangles}`);
     l.push(`bird placeholder (model=${this.flags.model})`);
-    l.push(`best ${this.game.best}   speed ${this.game.speed.toFixed(2)}   gap ${this.game.gap.toFixed(2)}`);
+    l.push(`mode ${this.game.mode}   best ${this.game.best}   speed ${this.game.speed.toFixed(2)}   gap ${this.game.gap.toFixed(2)}`);
     l.push(`err ${this.lastError}`);
 
     if (this.immersive) {

@@ -10,8 +10,11 @@ Source: Rev 3 plan (section 5) and Addendum A, 14 Nov 2026.
   horizontal gaze, at eye height. A "recentre" button on the Attract panel redoes this for the
   next player. Reference space `local-floor`, falling back to `local`.
 - Round length 60–120 s; one visitor every ~3.5–4 min (~15 per hour).
-- Best score of the day is saved in localStorage on the headset and shown on the Attract panel.
-  No names, no backend.
+- Best score of the day, per difficulty mode, is saved in localStorage on the headset and shown on
+  the Attract panel. No names, no backend.
+- Difficulty: three large buttons on the Attract panel (سهل / عادي / صعب), picked with the
+  controller ray + trigger (keys 1/2/3 or a click on desktop). `?mode=easy|normal|hard` sets the
+  operator's default, restored when the XR session ends. The mode shows on the Game Over panel.
 
 ## Scene
 ```
@@ -32,14 +35,15 @@ Scene
 ## Core (src/core)
 | File | Contents |
 |---|---|
-| config.ts | `CFG` constants + URL overrides |
+| config.ts | `CFG` constants, difficulty `PRESETS`, URL settings (`parseUrl`, `configFor`) |
 | physics.ts | `integrate()`, `circleVsRect()` |
 | obstacles.ts | pool, spawn, recycle, scoring |
 | game.ts | state machine: attract → ready → playing → gameOver; paused |
 | input.ts | `GameCommand`, `InputBus` |
 | core.test.ts | Vitest for all of the above |
 
-Starting constants (metres, seconds; tuned on the headset Sunday):
+Starting constants (metres, seconds; tuned on the headset Sunday). `CFG` holds the base values;
+its difficulty values are the original spec, which is now the **hard** preset:
 ```ts
 export const CFG = {
   gravity: -5.5,          // m/s²
@@ -51,13 +55,30 @@ export const CFG = {
   gapStart: 0.70, gapMin: 0.52, gapShrinkPerPoint: 0.01,
   spacing: 1.3,
   speedStart: 1.1, speedMax: 1.5, speedPerPoint: 0.02,
+  softBounds: false,      // floor/ceiling end the round
   laneW: 2.8, laneH: 1.6,
 };
 ```
+
+Difficulty presets, applied over `CFG` (`configFor(mode, urlOverrides)`):
+```ts
+export const PRESETS = {
+  // kids and families: no ramp, soft floor/ceiling (only obstacles end the round)
+  easy:   { flapVelocity: 1.7, gapStart: 1.00, gapMin: 1.00, gapShrinkPerPoint: 0,
+            speedStart: 0.9, speedMax: 0.9, speedPerPoint: 0, spacing: 1.6, softBounds: true },
+  // default
+  normal: { flapVelocity: 1.9, gapStart: 0.85, gapMin: 0.65, speedStart: 1.0, speedMax: 1.3 },
+  // the original spec values (= CFG)
+  hard:   {},
+};
+```
+- Precedence: `CFG` → preset → URL overrides (`g`, `flap`, `gap`, `speed`, `dist`, `h` always win).
 - No physics engine. Collision = closest point on the rectangle to the circle centre vs radius.
-  Floor and ceiling are bounds too.
-- +1 point when the bird passes an obstacle's trailing edge. Difficulty rises with score up to the
-  caps above.
+  Floor and ceiling are bounds too, except in easy, where the floor bounces the bird up gently and
+  the ceiling stops its climb; only obstacles end an easy round.
+- +1 point when the bird passes an obstacle's trailing edge. In normal and hard, difficulty rises
+  with score up to the caps above; easy stays fixed.
+- The mode can only change on the attract screen, never during a round.
 
 ## Input
 | Command | Quest Touch Plus | Desktop |
@@ -65,6 +86,7 @@ export const CFG = {
 | Flap / Start | Trigger on either hand (`selectstart` on the session, not polling) | Space, click, touch |
 | Restart | Trigger after a 0.8 s lockout, or A / X (`buttons[4]`) | Space or R |
 | Pause | B / Y (`buttons[5]`), or automatically on `visibility-blurred` | Esc or P |
+| Difficulty (Attract only) | Ray on سهل / عادي / صعب + trigger (the pressing controller's ray decides) | 1 / 2 / 3, or click a button |
 | Grip / thumbstick / menu | Unused (menu is reserved by the system) | — |
 
 - In IWSDK, use its XR input layer and map it onto the InputBus. Gaze-and-pinch and hand tracking
@@ -99,8 +121,9 @@ export const CFG = {
 
 ## Debug tools
 - `?debug=1`: in-VR HUD with fps, input profile, last button index, XR session state, last error,
-  bird/model mode.
-- URL tuning: `?g=-5.5&flap=2.1&gap=0.7&speed=1.1&dist=2.5&h=0` overrides the constants, so tuning
+  bird/model mode, difficulty mode.
+- `?mode=easy|normal|hard`: operator's default difficulty (default `normal`).
+- URL tuning: `?g=-5.5&flap=2.1&gap=0.7&speed=1.1&dist=2.5&h=0` overrides the preset, so tuning
   on the headset needs no redeploy.
 
 ## Sound and text

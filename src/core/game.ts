@@ -1,4 +1,4 @@
-import { type Config, gapForScore, speedForScore } from './config';
+import { type Config, DEFAULT_MODE, gapForScore, type Mode, speedForScore } from './config';
 import type { GameCommand } from './input';
 import { ObstacleField, type Rng } from './obstacles';
 import { type Body, flap, integrate } from './physics';
@@ -6,12 +6,14 @@ import { type Body, flap, integrate } from './physics';
 export type GameState = 'attract' | 'ready' | 'playing' | 'gameOver' | 'paused';
 
 /** Things the shell may react to (sound, haptics, animation). */
-export type GameEvent = 'flap' | 'score' | 'hit' | 'newBest' | 'state';
+export type GameEvent = 'flap' | 'score' | 'hit' | 'bounce' | 'newBest' | 'state' | 'mode';
 
 export interface GameOptions {
   rng?: Rng;
-  /** Best score so far today (from storage). */
+  /** Best score so far today in this mode (from storage). */
   best?: number;
+  /** Difficulty the config was built for. */
+  mode?: Mode;
 }
 
 /**
@@ -34,16 +36,37 @@ export class Game {
   /** Events since the shell last drained them. */
   readonly events: GameEvent[] = [];
 
+  mode: Mode;
+
   private acc = 0;
   private readonly rng: Rng;
+  private _cfg: Readonly<Config>;
 
-  constructor(
-    readonly cfg: Readonly<Config>,
-    opts: GameOptions = {},
-  ) {
+  constructor(cfg: Readonly<Config>, opts: GameOptions = {}) {
+    this._cfg = cfg;
     this.rng = opts.rng ?? Math.random;
     this.best = opts.best ?? 0;
+    this.mode = opts.mode ?? DEFAULT_MODE;
     this.field = new ObstacleField(cfg);
+  }
+
+  get cfg(): Readonly<Config> {
+    return this._cfg;
+  }
+
+  /**
+   * Switch difficulty. Only allowed on the attract screen (between rounds),
+   * so a round never changes rules halfway. Returns false if refused.
+   */
+  configure(cfg: Readonly<Config>, mode: Mode, best: number): boolean {
+    if (this.state !== 'attract') return false;
+    this._cfg = cfg;
+    this.mode = mode;
+    this.best = best;
+    this.field.setConfig(cfg);
+    this.resetRound();
+    this.events.push('mode');
+    return true;
   }
 
   get speed(): number {
@@ -135,9 +158,23 @@ export class Game {
 
     const r = this.cfg.birdRadius;
     const half = this.cfg.laneH / 2;
-    const y = this.bird.y;
-    if (y - r <= -half || y + r >= half || this.field.hits(this.cfg.birdX, y, r)) {
+    const b = this.bird;
+    if (this.field.hits(this.cfg.birdX, b.y, r)) {
       this.gameOver();
+      return;
+    }
+    if (b.y - r <= -half) {
+      if (!this.cfg.softBounds) return this.gameOver();
+      // Soft floor: put the bird back on it and pop it up gently.
+      b.y = -half + r;
+      b.vy = this.cfg.flapVelocity * 0.6;
+      this.events.push('bounce');
+    } else if (b.y + r >= half) {
+      if (!this.cfg.softBounds) return this.gameOver();
+      // Soft ceiling: stop the climb; gravity takes over.
+      b.y = half - r;
+      if (b.vy > 0) b.vy = 0;
+      this.events.push('bounce');
     }
   }
 

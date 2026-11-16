@@ -1,3 +1,5 @@
+import type { Mode } from './config';
+
 // Best score of the day: key naming and parsing only. Storage itself
 // (localStorage) belongs to the shell, which must survive it being blocked.
 
@@ -9,8 +11,8 @@ export function dayKey(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-export function bestStorageKey(date: Date): string {
-  return `joudbird.best.${dayKey(date)}`;
+export function bestStorageKey(date: Date, mode: Mode): string {
+  return `joudbird.best.${mode}.${dayKey(date)}`;
 }
 
 /** Parse a stored value; anything odd counts as 0. */

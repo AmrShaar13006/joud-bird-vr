@@ -17,7 +17,7 @@ import {
   SphereGeometry,
   Vector3,
 } from '@iwsdk/core';
-import type { Config } from '../core/config';
+import { type Config, type Mode, MODES } from '../core/config';
 import type { Game } from '../core/game';
 import { POOL_SIZE } from '../core/obstacles';
 import { CanvasPanel } from './canvas-panel';
@@ -48,6 +48,8 @@ export class PlayWindow {
   readonly score: CanvasPanel;
   readonly recentre: CanvasPanel;
   readonly hud: CanvasPanel;
+  /** Mode picker buttons (Attract screen). Parented by the shell. */
+  readonly modeButtons: Record<Mode, CanvasPanel>;
 
   private squash = 0;
   private flash = 0;
@@ -150,7 +152,7 @@ export class PlayWindow {
     this.paused.mesh.position.set(0, 0, Z.panel);
     this.ready.mesh.position.set(0, -H / 2 - 0.22, Z.panel);
     this.score.mesh.position.set(0, H / 2 + 0.18, Z.panel);
-    this.recentre.mesh.position.set(0, -0.5, Z.button);
+    this.recentre.mesh.position.set(0, -H / 2 - 0.22, Z.button);
     this.hud.mesh.position.set(-W / 2 - 0.5, H / 2 - 0.1, Z.panel);
     this.hud.mesh.rotation.y = 20 * DEG;
 
@@ -159,7 +161,19 @@ export class PlayWindow {
       this.rig.add(p.mesh);
       p.visible = false;
     }
-    // The recentre button is parented by its own entity (it needs RayInteractable).
+    // Mode buttons in reading order right to left: سهل · عادي · صعب.
+    const modeX: Record<Mode, number> = { easy: 0.5, normal: 0, hard: -0.5 };
+    const buttons = {} as Record<Mode, CanvasPanel>;
+    for (const m of MODES) {
+      const b = new CanvasPanel(0.46, 0.22, 512, 256, `ModeButton-${m}`);
+      b.mesh.position.set(modeX[m], -0.53, Z.button);
+      b.visible = false;
+      buttons[m] = b;
+    }
+    this.modeButtons = buttons;
+
+    // The recentre and mode buttons are parented by the shell: in IWSDK each
+    // needs its own entity (RayInteractable).
     this.recentre.visible = false;
   }
 
@@ -225,7 +239,7 @@ export class PlayWindow {
     this.squash = Math.max(0, this.squash - dt * 8);
     const s = 1 - 0.18 * this.squash;
     this.bird.scale.set(1 + 0.1 * this.squash, s, 1 + 0.1 * this.squash);
-    const tilt = Math.max(-1, Math.min(1, game.bird.vy / cfg.flapVelocity));
+    const tilt = Math.max(-1, Math.min(1, game.bird.vy / game.cfg.flapVelocity));
     // Facing left (−x): nose up is a clockwise turn seen from the player.
     this.bird.rotation.z = game.state === 'playing' ? -tilt * 30 * DEG : 0;
     this.flash = Math.max(0, this.flash - dt * 2.5);
