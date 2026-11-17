@@ -28,13 +28,18 @@ export const STRINGS = {
   /** Desktop key for each mode button. */
   modeKey: { easy: '1', normal: '2', hard: '3' } as Record<Mode, string>,
 
+  soundOn: 'الصوت: يعمل',
+  soundOff: 'الصوت: مكتوم',
+  /** Desktop key for the mute toggle. */
+  muteKey: 'M',
+
   recentre: 'إعادة التوسيط',
   recentreLatin: 'Recentre',
 
   // 2D attract page (index.html / fallback.html)
   enterVR: 'ادخل الواقع الافتراضي · Enter VR',
   desktopHint:
-    'طيران: المسافة أو النقر · إعادة: R · إيقاف: Esc أو P · المستوى: 1 أو 2 أو 3',
+    'طيران: المسافة أو النقر · إعادة: R · إيقاف: Esc أو P · المستوى: 1 أو 2 أو 3 · الصوت: M',
   /** Same hint for a page without the mode picker. */
-  desktopHintNoPicker: 'طيران: المسافة أو النقر · إعادة: R · إيقاف: Esc أو P',
+  desktopHintNoPicker: 'طيران: المسافة أو النقر · إعادة: R · إيقاف: Esc أو P · الصوت: M',
 } as const;

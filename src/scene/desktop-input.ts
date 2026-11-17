@@ -8,6 +8,10 @@ export interface DesktopExtras {
    * pointer hit something else (a mode button) and must not flap.
    */
   pick?: (clientX: number, clientY: number) => boolean;
+  /** Key M. */
+  onMuteKey?: () => void;
+  /** Any key or pointer press: a user gesture (unlocks audio). */
+  onGesture?: () => void;
 }
 
 const MODE_KEYS: Record<string, number> = {
@@ -21,7 +25,7 @@ const MODE_KEYS: Record<string, number> = {
 
 /**
  * Desktop mode: Space / click / touch = flap, Enter = start, R = restart,
- * Esc or P = pause, 1/2/3 = difficulty. `isActive` gates input while an XR
+ * Esc or P = pause, 1/2/3 = difficulty, M = mute. `isActive` gates input while an XR
  * session runs. Returns a teardown function.
  */
 export function attachDesktopInput(
@@ -32,8 +36,12 @@ export function attachDesktopInput(
   extras: DesktopExtras = {},
 ): () => void {
   const onKey = (e: KeyboardEvent) => {
+    extras.onGesture?.();
     if (!isActive() || e.repeat) return;
     switch (e.code) {
+      case 'KeyM':
+        extras.onMuteKey?.();
+        break;
       case 'Space':
         bus.push('flap');
         break;
@@ -58,6 +66,7 @@ export function attachDesktopInput(
     e.preventDefault();
   };
   const onPointer = (e: PointerEvent) => {
+    extras.onGesture?.();
     if (!isActive()) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();

@@ -6,6 +6,7 @@ import {
   gameOverArt,
   type InputMode,
   modeButtonArt,
+  muteButtonArt,
   pausedArt,
   readyArt,
   scoreArt,
@@ -17,6 +18,8 @@ export interface PanelOptions {
   picker: boolean;
   /** Show the recentre button on the attract screen in VR. */
   recentre: boolean;
+  /** Show the mute toggle on the attract screen. */
+  mute: boolean;
 }
 
 /**
@@ -31,6 +34,7 @@ export class PanelController {
   private drawnRestart = false;
   private drawnBest = -1;
   private drawnMode: Mode | '' = '';
+  private drawnMuted: boolean | null = null;
 
   constructor(
     private readonly view: PlayWindow,
@@ -38,13 +42,16 @@ export class PanelController {
     private readonly opts: PanelOptions,
   ) {}
 
-  update(game: Game, immersive: boolean): void {
+  update(game: Game, immersive: boolean, muted = false): void {
     const v = this.view;
     const input: InputMode = immersive ? 'xr' : 'desktop';
     const st = game.state;
     const canRestart = game.canRestartWithTrigger;
     const changed =
-      st !== this.drawnState || input !== this.drawnInput || game.mode !== this.drawnMode;
+      st !== this.drawnState ||
+      input !== this.drawnInput ||
+      game.mode !== this.drawnMode ||
+      muted !== this.drawnMuted;
 
     if (
       changed ||
@@ -63,6 +70,8 @@ export class PanelController {
         b.visible = this.opts.picker && st === 'attract';
         if (b.visible) b.redraw(modeButtonArt(m, m === game.mode, input));
       }
+      v.muteButton.visible = this.opts.mute && st === 'attract';
+      if (v.muteButton.visible) v.muteButton.redraw(muteButtonArt(muted, input));
       if (st === 'attract') v.attract.redraw(attractArt(game.best, input, this.opts.picker));
       if (st === 'ready') v.ready.redraw(readyArt(input));
       if (st === 'gameOver') {
@@ -74,6 +83,7 @@ export class PanelController {
       this.drawnRestart = canRestart;
       this.drawnBest = game.best;
       this.drawnMode = game.mode;
+      this.drawnMuted = muted;
     }
     if (game.score !== this.drawnScore) {
       v.score.redraw(scoreArt(game.score));

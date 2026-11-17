@@ -101,7 +101,12 @@ export function configFor(mode: Mode, overrides: Readonly<Partial<Config>> = {})
 
 export interface UrlFlags {
   debug: boolean;
+  /** Bird: the Joud GLB by default; ?model=placeholder forces the primitive bird. */
   model: 'placeholder' | 'joud';
+  /** Visual effects (sparkles, score burst, score pop, hit flash). ?fx=0 turns them off. */
+  fx: boolean;
+  /** Sound starts muted with ?mute=1. */
+  mute: boolean;
 }
 
 export interface UrlSettings {
@@ -125,7 +130,7 @@ const NUMERIC: Record<string, { key: keyof Config; min: number; max: number }> =
 };
 
 /**
- * Read `?mode=&g=&flap=&gap=&speed=&dist=&h=&debug=1&model=joud`.
+ * Read `?mode=&g=&flap=&gap=&speed=&dist=&h=&debug=1&model=placeholder&fx=0&mute=1`.
  * Invalid or out-of-range values are ignored.
  */
 export function parseUrl(search: string): UrlSettings {
@@ -149,7 +154,9 @@ export function parseUrl(search: string): UrlSettings {
   const debug = params.get('debug');
   const flags: UrlFlags = {
     debug: debug === '1' || debug === 'true',
-    model: params.get('model') === 'joud' ? 'joud' : 'placeholder',
+    model: params.get('model') === 'placeholder' ? 'placeholder' : 'joud',
+    fx: params.get('fx') !== '0',
+    mute: params.get('mute') === '1',
   };
   return { mode, overrides, flags, applied };
 }

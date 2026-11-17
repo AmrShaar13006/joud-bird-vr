@@ -4,9 +4,13 @@ import {
   CircleGeometry,
   Color,
   DirectionalLight,
+  DoubleSide,
+  DynamicDrawUsage,
   Float32BufferAttribute,
   Group,
   HemisphereLight,
+  InstancedMesh,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
@@ -21,27 +25,59 @@ import {
 import { type Config, type Mode, MODES } from '../core/config';
 import type { Game } from '../core/game';
 import { POOL_SIZE } from '../core/obstacles';
+import { Bird } from './bird';
+import { ScoreBurst } from './burst';
 import { CanvasPanel } from './canvas-panel';
+import { setPanelFx } from './panel-art';
+import { BRAND, buildFlowerStrip, buildFrameSparkles } from './scenery';
 
-const SKY_TOP = new Color('#6fb8e8');
-const SKY_HORIZON = new Color('#fde9c9');
+export interface ViewOptions {
+  /** Visual effects on (?fx=0 turns them off). */
+  fx: boolean;
+}
+
+// Campaign look (docs/joud-brand.md): soft blue sky down to butter yellow.
+const SKY_TOP = new Color(BRAND.sky).lerp(new Color('#ffffff'), 0.45);
+const SKY_HORIZON = new Color(BRAND.butter);
+const LANE_BG = new Color(BRAND.sky).lerp(new Color('#ffffff'), 0.72);
+const BOX_COLORS = [new Color(BRAND.butter), new Color(BRAND.deepGreen), new Color(BRAND.redOrange)];
 const DEG = Math.PI / 180;
 
+/** Stacked campaign boxes (100 × 50 cm ratio): one box is this tall in the lane. */
+const BOX_H = 0.18;
+const BOX_SEAM = 0.012;
+const BOX_DEPTH = 0.12;
+const MAX_BOXES = 56;
+
 /** Depths in rig space (+Z faces the player). */
-const Z = { laneBg: -0.15, frame: 0.0, bird: 0, obstacle: 0, panel: 0.18, button: 0.2 };
+const Z = {
+  // just behind the obstacle backs (−BOX_DEPTH/2), so no sky shows between them
+  laneBg: -BOX_DEPTH / 2 - 0.01,
+  frame: 0.0,
+  bird: 0,
+  obstacle: 0,
+  panel: 0.18,
+  button: 0.2,
+};
+/** Panels sit left of centre so Joud peeks out beside them. */
+const PANEL_X = -0.2;
 
 /**
  * Everything the player sees. `environment` is world-fixed (sky, ground,
- * lights); `rig` is the PlayRig placed once per player. Lane coordinates:
- * x right, y up, origin at the lane centre, all inside `rig`.
+ * lights, flower strip); `rig` is the PlayRig placed once per player.
+ * Lane coordinates: x right, y up, origin at the lane centre, inside `rig`.
  */
 export class PlayWindow {
   readonly environment = new Group();
   readonly rig = new Group();
   readonly ground: Mesh;
-  readonly bird: Mesh<SphereGeometry, MeshLambertMaterial>;
-  /** [top, bottom] meshes per pool slot. */
-  readonly obstacleMeshes: Mesh[][] = [];
+  readonly flowers: Mesh;
+  readonly sparkles: Mesh;
+  readonly bird: Bird;
+  /** Score juice: pooled petal/sparkle burst (fx only). */
+  readonly burst: ScoreBurst;
+  /** All obstacle blocks as stacked boxes in one instanced draw call. */
+  readonly boxes: InstancedMesh;
   readonly attract: CanvasPanel;
   readonly ready: CanvasPanel;
   readonly gameOver: CanvasPanel;
@@ -51,27 +87,36 @@ export class PlayWindow {
   readonly hud: CanvasPanel;
   /** Mode picker buttons (Attract screen). Parented by the shell. */
   readonly modeButtons: Record<Mode, CanvasPanel>;
+  /** Mute toggle (Attract screen), left of the mode buttons. Parented by the shell. */
+  readonly muteButton: CanvasPanel;
 
-  private squash = 0;
-  private flash = 0;
   private readonly tmpFwd = new Vector3();
   private readonly tmpPos = new Vector3();
   private readonly tmpQuat = new Quaternion();
+  private readonly boxMat = new Matrix4();
+  private readonly boxPos = new Vector3();
+  private readonly boxScale = new Vector3();
+  private readonly noRot = new Quaternion();
+  private scorePop = 0;
 
-  constructor(private readonly cfg: Readonly<Config>) {
+  constructor(
+    private readonly cfg: Readonly<Config>,
+    readonly opts: ViewOptions = { fx: true },
+  ) {
     const W = cfg.laneW;
     const H = cfg.laneH;
     this.rig.name = 'PlayRig';
     this.environment.name = 'Environment';
+    setPanelFx(opts.fx);
 
-    // --- environment: sky dome, ground, two lights (no shadows) ---
+    // --- environment: sky dome, ground, flower strip, two lights (no shadows) ---
     const skyGeo = new SphereGeometry(60, 24, 12);
     const pos = skyGeo.getAttribute('position');
     const colors: number[] = [];
     const c = new Color();
     for (let i = 0; i < pos.count; i++) {
       const t = Math.max(0, pos.getY(i) / 60);
-      c.copy(SKY_HORIZON).lerp(SKY_TOP, Math.pow(t, 0.6));
+      c.copy(SKY_HORIZON).lerp(SKY_TOP, Math.pow(t, 0.55));
       colors.push(c.r, c.g, c.b);
     }
     skyGeo.setAttribute('color', new Float32BufferAttribute(colors, 3));
@@ -82,24 +127,32 @@ export class PlayWindow {
     sky.name = 'SkyDome';
     sky.renderOrder = -10;
 
-    this.ground = new Mesh(
-      new CircleGeometry(40, 32),
-      new MeshLambertMaterial({ color: '#e3c38f' }),
-    );
+    this.ground = new Mesh(new CircleGeometry(40, 32), new MeshLambertMaterial({ color: BRAND.leafGreen }));
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.name = 'Ground';
 
-    const hemi = new HemisphereLight('#ffffff', '#c9a46b', 1.6);
+    // Painted flowers and leaves: one merged, unlit mesh, placed under the window in place().
+    this.flowers = new Mesh(
+      buildFlowerStrip(6.4, 0.26),
+      new MeshBasicMaterial({ vertexColors: true, side: DoubleSide }),
+    );
+    this.flowers.name = 'FlowerStrip';
+
+    // Warm cream bounce so Joud stays cream (a green ground colour tints the body).
+    const hemi = new HemisphereLight('#ffffff', '#EADBC8', 1.6);
     const sun = new DirectionalLight('#ffffff', 1.2);
     sun.position.set(-2, 5, 4);
-    this.environment.add(sky, this.ground, hemi, sun);
+    this.environment.add(sky, this.ground, this.flowers, hemi, sun);
 
-    // --- rig: lane background and frame ---
-    const laneBg = new Mesh(new PlaneGeometry(W, H), new MeshBasicMaterial({ color: '#d4eefb' }));
-    laneBg.position.z = Z.laneBg;
+    // --- rig: lane background (frame-sized so the frame always covers its edge) and frame ---
+    const border = 0.06;
+    const laneBg = new Mesh(
+      new PlaneGeometry(W + border * 2, H + border * 3),
+      new MeshBasicMaterial({ color: LANE_BG }),
+    );
+    laneBg.position.set(0, -border / 2, Z.laneBg);
     laneBg.name = 'Lane';
 
-    const border = 0.06;
     const outer = new Shape();
     outer.moveTo(-W / 2 - border, -H / 2 - border * 2);
     outer.lineTo(W / 2 + border, -H / 2 - border * 2);
@@ -113,67 +166,76 @@ export class PlayWindow {
     hole.lineTo(W / 2, -H / 2);
     hole.closePath();
     outer.holes.push(hole);
-    const frame = new Mesh(new ShapeGeometry(outer), new MeshBasicMaterial({ color: '#2b3a55' }));
-    frame.position.z = Z.frame + 0.13; // in front of obstacle faces so edges look clean
+    const frame = new Mesh(new ShapeGeometry(outer), new MeshBasicMaterial({ color: BRAND.deepGreen }));
+    frame.position.z = Z.frame + BOX_DEPTH / 2 + 0.01; // just in front of the box faces
     frame.name = 'Frame';
 
-    // --- bird: placeholder sphere (the Joud model replaces it in prompt 03) ---
-    this.bird = new Mesh(
-      new SphereGeometry(cfg.birdRadius, 24, 16),
-      new MeshLambertMaterial({ color: '#f28c28', emissive: '#000000' }),
+    this.sparkles = new Mesh(
+      buildFrameSparkles(W, H, frame.position.z + 0.002),
+      new MeshBasicMaterial({ vertexColors: true, side: DoubleSide }),
     );
-    this.bird.name = 'Bird';
-    this.bird.position.set(cfg.birdX, 0, Z.bird);
+    this.sparkles.name = 'FrameSparkles';
+    this.sparkles.visible = opts.fx;
 
-    // --- obstacles: 5 pairs, one shared unit box, scaled per frame ---
-    const box = new BoxGeometry(1, 1, 0.2);
-    const obstacleMat = new MeshLambertMaterial({ color: '#2f8f6b' });
-    for (let i = 0; i < POOL_SIZE; i++) {
-      const pair: Mesh[] = [];
-      for (let j = 0; j < 2; j++) {
-        const m = new Mesh(box, obstacleMat);
-        m.name = `Obstacle${i}${j === 0 ? 'Top' : 'Bottom'}`;
-        m.visible = false;
-        m.matrixAutoUpdate = true;
-        pair.push(m);
-        this.rig.add(m);
-      }
-      this.obstacleMeshes.push(pair);
-    }
+    // --- bird: placeholder Joud until the GLB loads (src/scene/bird.ts) ---
+    this.bird = new Bird(opts.fx);
+    this.bird.root.position.set(cfg.birdX, 0, Z.bird);
+
+    // --- obstacles: stacked campaign boxes, one InstancedMesh for the whole pool ---
+    // Unlit, so the front faces show the exact campaign colours; fixed per-face
+    // shades keep the stacks reading as boxes (vertex colour × instance colour).
+    const boxGeo = new BoxGeometry(1, 1, BOX_DEPTH);
+    const FACE_SHADE = [0.8, 0.8, 0.9, 0.7, 1, 0.7]; // +x −x +y −y +z −z
+    const shade = new Float32Array(boxGeo.getAttribute('position').count * 3);
+    for (let v = 0; v < shade.length / 3; v++) shade.fill(FACE_SHADE[Math.floor(v / 4)], v * 3, v * 3 + 3);
+    boxGeo.setAttribute('color', new Float32BufferAttribute(shade, 3));
+    this.boxes = new InstancedMesh(boxGeo, new MeshBasicMaterial({ vertexColors: true }), MAX_BOXES);
+    this.boxes.name = 'ObstacleBoxes';
+    this.boxes.instanceMatrix.setUsage(DynamicDrawUsage);
+    for (let i = 0; i < MAX_BOXES; i++) this.boxes.setColorAt(i, BOX_COLORS[0]);
+    this.boxes.count = 0;
+    this.boxes.frustumCulled = false; // instances move every frame
 
     // --- panels (canvas textures) ---
-    this.attract = new CanvasPanel(1.6, 0.8, 1024, 512, 'AttractPanel');
-    this.gameOver = new CanvasPanel(1.6, 0.8, 1024, 512, 'GameOverPanel');
-    this.paused = new CanvasPanel(1.2, 0.4, 768, 256, 'PausedPanel');
+    this.attract = new CanvasPanel(1.4, 0.7, 1024, 512, 'AttractPanel');
+    this.gameOver = new CanvasPanel(1.4, 0.7, 1024, 512, 'GameOverPanel');
+    this.paused = new CanvasPanel(1.1, 0.37, 768, 256, 'PausedPanel');
     this.ready = new CanvasPanel(1.4, 0.18, 1024, 128, 'ReadyHint');
     this.score = new CanvasPanel(0.4, 0.2, 256, 128, 'Score');
     this.recentre = new CanvasPanel(0.6, 0.18, 512, 160, 'RecentreButton');
     this.hud = new CanvasPanel(0.9, 0.45, 512, 256, 'DebugHUD');
 
-    this.attract.mesh.position.set(0, 0.05, Z.panel);
-    this.gameOver.mesh.position.set(0, 0.05, Z.panel);
-    this.paused.mesh.position.set(0, 0, Z.panel);
-    this.ready.mesh.position.set(0, -H / 2 - 0.22, Z.panel);
+    this.attract.mesh.position.set(PANEL_X, 0.1, Z.panel);
+    this.gameOver.mesh.position.set(PANEL_X, 0.1, Z.panel);
+    this.paused.mesh.position.set(PANEL_X, 0, Z.panel);
+    // Inside the lane bottom (empty during Ready), clear of the flower strip below the window.
+    this.ready.mesh.position.set(0, -H / 2 + 0.16, Z.panel);
     this.score.mesh.position.set(0, H / 2 + 0.18, Z.panel);
-    this.recentre.mesh.position.set(0, -H / 2 - 0.22, Z.button);
+    this.recentre.mesh.position.set(PANEL_X, -H / 2 + 0.14, Z.button);
     this.hud.mesh.position.set(-W / 2 - 0.5, H / 2 - 0.1, Z.panel);
     this.hud.mesh.rotation.y = 20 * DEG;
 
-    this.rig.add(laneBg, frame, this.bird);
+    this.burst = new ScoreBurst(Z.panel - 0.03); // in front of the boxes, behind the panels
+    this.burst.mesh.visible = opts.fx;
+
+    this.rig.add(laneBg, frame, this.sparkles, this.boxes, this.bird.root, this.burst.mesh);
     for (const p of [this.attract, this.gameOver, this.paused, this.ready, this.score, this.hud]) {
       this.rig.add(p.mesh);
       p.visible = false;
     }
     // Mode buttons in reading order right to left: سهل · عادي · صعب.
-    const modeX: Record<Mode, number> = { easy: 0.5, normal: 0, hard: -0.5 };
+    const modeX: Record<Mode, number> = { easy: PANEL_X + 0.47, normal: PANEL_X, hard: PANEL_X - 0.47 };
     const buttons = {} as Record<Mode, CanvasPanel>;
     for (const m of MODES) {
-      const b = new CanvasPanel(0.46, 0.22, 512, 256, `ModeButton-${m}`);
-      b.mesh.position.set(modeX[m], -0.53, Z.button);
+      const b = new CanvasPanel(0.42, 0.2, 512, 256, `ModeButton-${m}`);
+      b.mesh.position.set(modeX[m], -0.42, Z.button);
       b.visible = false;
       buttons[m] = b;
     }
     this.modeButtons = buttons;
+    this.muteButton = new CanvasPanel(0.36, 0.2, 512, 288, 'MuteButton');
+    this.muteButton.mesh.position.set(modeX.hard - 0.45, -0.42, Z.button);
+    this.muteButton.visible = false;
 
     // The recentre and mode buttons are parented by the shell: in IWSDK each
     // needs its own entity (RayInteractable).
@@ -182,7 +244,8 @@ export class PlayWindow {
 
   /**
    * Place the rig `dist` metres ahead of the head along the horizontal gaze,
-   * at eye height + h, facing the player. Also drops the ground below.
+   * at eye height + h, facing the player. Also drops the ground and the
+   * flower strip below the window.
    */
   place(headPos: Vector3, headQuat: Quaternion, dist = this.cfg.rigDistance): void {
     const f = this.tmpFwd.set(0, 0, -1).applyQuaternion(headQuat);
@@ -194,9 +257,13 @@ export class PlayWindow {
       headPos.y + this.cfg.rigHeight,
       headPos.z + f.z * dist,
     );
-    this.rig.rotation.set(0, Math.atan2(-f.x, -f.z), 0);
+    const yaw = Math.atan2(-f.x, -f.z);
+    this.rig.rotation.set(0, yaw, 0);
     // local-floor puts the floor at y=0; with `local`, y=0 is the head, so guess a seated floor.
-    this.ground.position.y = headPos.y > 0.6 ? 0 : headPos.y - 1.2;
+    const groundY = headPos.y > 0.6 ? 0 : headPos.y - 1.2;
+    this.ground.position.y = groundY;
+    this.flowers.position.set(this.rig.position.x, groundY + 0.002, this.rig.position.z);
+    this.flowers.rotation.set(0, yaw, 0);
   }
 
   /**
@@ -215,11 +282,18 @@ export class PlayWindow {
   }
 
   onFlap(): void {
-    this.squash = 1;
+    this.bird.onFlap();
   }
 
   onHit(): void {
-    this.flash = 1;
+    this.bird.onHit();
+  }
+
+  /** A point: burst of petals at the bird and a gentle pop on the score (fx only). */
+  onScore(birdY: number): void {
+    if (!this.opts.fx) return;
+    this.burst.spawn(this.cfg.birdX, birdY);
+    this.scorePop = 1;
   }
 
   /** Copy core state to meshes. `dt` drives cosmetic animation only. */
@@ -229,39 +303,54 @@ export class PlayWindow {
     const halfH = cfg.laneH / 2;
     const halfP = cfg.pipeWidth / 2;
 
-    // Obstacles: trim each block to the window so nothing shows outside it.
+    // Obstacles: stack boxes from each gap edge out to the lane edge, trimmed
+    // horizontally to the window so nothing shows outside it.
+    let n = 0;
     const pool = game.field.pool;
-    for (let i = 0; i < pool.length; i++) {
+    for (let i = 0; i < pool.length && i < POOL_SIZE; i++) {
       const o = pool[i];
-      const [top, bottom] = this.obstacleMeshes[i];
+      if (!o.active) continue;
       const x0 = Math.max(o.x - halfP, -halfW);
       const x1 = Math.min(o.x + halfP, halfW);
-      const show = o.active && x1 - x0 > 0.001;
-      top.visible = show;
-      bottom.visible = show;
-      if (!show) continue;
+      if (x1 - x0 <= 0.001) continue;
       const cx = (x0 + x1) / 2;
       const w = x1 - x0;
-      const gapTop = o.gapY + o.gap / 2;
-      const gapBottom = o.gapY - o.gap / 2;
-      top.position.set(cx, (gapTop + halfH) / 2, Z.obstacle);
-      top.scale.set(w, Math.max(0.001, halfH - gapTop), 1);
-      bottom.position.set(cx, (gapBottom - halfH) / 2, Z.obstacle);
-      bottom.scale.set(w, Math.max(0.001, gapBottom + halfH), 1);
+      n = this.stack(n, i, 0, cx, w, o.gapY + o.gap / 2, halfH, 1);
+      n = this.stack(n, i, 1, cx, w, o.gapY - o.gap / 2, -halfH, -1);
     }
+    this.boxes.count = n;
+    this.boxes.instanceMatrix.needsUpdate = true;
+    if (this.boxes.instanceColor) this.boxes.instanceColor.needsUpdate = true;
 
-    // Bird: bob while waiting, squash on flap, tilt with vertical speed, flash on hit.
-    const idle = game.state === 'attract' || game.state === 'ready';
-    const bob = idle ? Math.sin(time * 3) * 0.04 : 0;
-    this.bird.position.y = game.bird.y + bob;
-    this.squash = Math.max(0, this.squash - dt * 8);
-    const s = 1 - 0.18 * this.squash;
-    this.bird.scale.set(1 + 0.1 * this.squash, s, 1 + 0.1 * this.squash);
-    const tilt = Math.max(-1, Math.min(1, game.bird.vy / game.cfg.flapVelocity));
-    // Facing left (−x): nose up is a clockwise turn seen from the player.
-    this.bird.rotation.z = game.state === 'playing' ? -tilt * 30 * DEG : 0;
-    this.flash = Math.max(0, this.flash - dt * 2.5);
-    const on = this.flash > 0 && Math.floor(this.flash * 10) % 2 === 0;
-    this.bird.material.emissive.setScalar(on ? 0.8 : 0);
+    // Cosmetic time step, clamped so a hitch never makes effects jump.
+    const fxDt = Math.min(dt, 0.05);
+    this.bird.update(game, fxDt, time);
+
+    if (this.opts.fx) {
+      this.burst.update(fxDt);
+      // gentle pop: up to +18 %, eased back over ~0.3 s
+      this.scorePop = Math.max(0, this.scorePop - fxDt * 3.5);
+      const k = this.scorePop;
+      this.score.mesh.scale.setScalar(1 + 0.18 * k * k);
+    }
+  }
+
+  /** Boxes from `from` (gap edge) towards `to` (lane edge), `dir` = ±1. */
+  private stack(n: number, slot: number, side: number, cx: number, w: number, from: number, to: number, dir: 1 | -1): number {
+    let y = from;
+    let k = 0;
+    while ((to - y) * dir > 0.002 && n < MAX_BOXES) {
+      const h = Math.min(BOX_H, (to - y) * dir);
+      const visibleH = h > BOX_SEAM * 2 ? h - BOX_SEAM : h;
+      this.boxPos.set(cx, y + (dir * visibleH) / 2, Z.obstacle);
+      this.boxScale.set(w, visibleH, 1);
+      this.boxMat.compose(this.boxPos, this.noRot, this.boxScale);
+      this.boxes.setMatrixAt(n, this.boxMat);
+      this.boxes.setColorAt(n, BOX_COLORS[(slot + side + k) % 3]);
+      y += dir * h;
+      k++;
+      n++;
+    }
+    return n;
   }
 }

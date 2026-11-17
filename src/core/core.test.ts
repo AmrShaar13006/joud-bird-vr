@@ -71,10 +71,20 @@ describe('config', () => {
     expect(configFor('hard', parseUrl('?speed=2').overrides).speedMax).toBe(2);
   });
 
-  it('reads debug and model flags', () => {
-    expect(parseUrl('').flags).toEqual({ debug: false, model: 'placeholder' });
-    expect(parseUrl('?debug=1&model=joud').flags).toEqual({ debug: true, model: 'joud' });
-    expect(parseUrl('?model=other').flags.model).toBe('placeholder');
+  it('reads debug, model, fx and mute flags', () => {
+    expect(parseUrl('').flags).toEqual({ debug: false, model: 'joud', fx: true, mute: false });
+    expect(parseUrl('?debug=1&model=placeholder&fx=0&mute=1').flags).toEqual({
+      debug: true,
+      model: 'placeholder',
+      fx: false,
+      mute: true,
+    });
+    expect(parseUrl('?model=other&fx=1&mute=0').flags).toEqual({
+      debug: false,
+      model: 'joud',
+      fx: true,
+      mute: false,
+    });
   });
 
   it('does not mutate the base config or the presets', () => {

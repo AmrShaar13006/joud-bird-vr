@@ -111,23 +111,35 @@ export const PRESETS = {
 | Foveation | `renderer.xr.setFoveation(1)` |
 
 ## Character
-- `public/models/joud.glb`: 6,176 triangles, 1 draw call, 368 KB. Load it when `?model=joud` is
-  set; on any error fall back to the primitive placeholder.
+- `public/models/joud.glb`: 6,176 triangles, 1 draw call, 368 KB. Loaded by default (its PBR
+  material becomes Lambert with the same maps); on any error the primitive placeholder Joud stays
+  (916 triangles). `?model=placeholder` forces the placeholder. Code: `src/scene/bird.ts`.
 - Scale 0.2 (body radius ≈ 0.12 m). +Z is the front; rotate −50° to −60° about Y so it faces the
   flight direction while the player still sees the vest and face.
 - Glasses and legs are built in code as children of the model. Positions are in
   `docs/joud-brief.json` → `model.landmarks_model_units` and `glasses_hint`.
-- Procedural animation only: idle bob, squash on flap, tilt from vertical speed (±30°), hit flash.
+- Procedural animation only: idle bob, squash on flap, tilt from vertical speed (±30°), one soft
+  hit flash (a fade, never blinking).
+
+## Look and effects (docs/joud-brand.md)
+- Sky soft blue to butter yellow, leaf-green ground, a merged strip of flat painted flowers and
+  leaves under the window, obstacles as stacked campaign boxes (one InstancedMesh), panels as
+  deep-green / red-orange blocks with cream text.
+- Effects: four-point sparkles (frame and panels), a pooled petal burst on each point (≤ 64
+  instanced particles), a score pop, the hit flash. `?fx=0` turns all of them off.
 
 ## Debug tools
 - `?debug=1`: in-VR HUD with fps, input profile, last button index, XR session state, last error,
-  bird/model mode, difficulty mode.
+  bird/model status, difficulty mode, sound state.
 - `?mode=easy|normal|hard`: operator's default difficulty (default `normal`).
+- `?model=placeholder`, `?fx=0`, `?mute=1`: force the placeholder bird, effects off, start muted.
 - URL tuning: `?g=-5.5&flap=2.1&gap=0.7&speed=1.1&dist=2.5&h=0` overrides the preset, so tuning
   on the headset needs no redeploy.
 
 ## Sound and text
-- Three original Web Audio effects: flap, score, hit. First sound only after a user gesture.
+- Original Web Audio effects synthesised in code (`src/scene/audio.ts`): flap, score chime rising
+  with the round's score, soft hit, button click. No music. First sound only after a user gesture.
+  Mute: button on the Attract panel, key M, `?mute=1`.
 - Arabic panel text on a 2D canvas texture (RTL works natively).
 
 ## Deployment
