@@ -74,6 +74,12 @@ export class Game {
   lastRun: RunLog | null = null;
   lastResult: RunResult | null = null;
 
+  /**
+   * Render hook, called inside advance() before every fixed step so a shell can keep the
+   * previous state for interpolation. It must not change the game.
+   */
+  beforeStep: (() => void) | null = null;
+
   /** Flap ticks of the current round. */
   private readonly flaps: number[] = [];
   private readonly checkpoints: string[] = [];
@@ -203,10 +209,16 @@ export class Game {
     let steps = 0;
     while (this.acc >= this.cfg.step) {
       this.acc -= this.cfg.step;
+      if (this.beforeStep) this.beforeStep();
       this.step(this.cfg.step);
       steps++;
     }
     return steps;
+  }
+
+  /** Time carried to the next frame, as a fraction of a step (0..1): render interpolation. */
+  get alpha(): number {
+    return this.acc / this.cfg.step;
   }
 
   /** One fixed simulation step. Live play and replay both run exactly this. */

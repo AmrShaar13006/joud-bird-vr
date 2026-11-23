@@ -5,6 +5,40 @@ run is fully described by **(ruleset id, mode, seed, flap ticks)**. In step 2 th
 replay every submitted run to check it, so a replay must give the identical score in Chrome,
 Safari, Node and Deno (the runtime of Supabase Edge Functions).
 
+## The phone page (`play/index.html` → `src/mobile/`)
+- **Code:** plain `three` (the same super-three as the VR pages), no `@iwsdk/*`, no WebXR.
+  `npm run check:mobile`, run after a build, proves that the `play/` chunk graph has no IWSDK,
+  uikit or IWER modules and that no emulator is injected. It also prints the gzipped size.
+- **Reused from `src/scene`:** `Bird` (joud.glb with code-built glasses and legs), the flower
+  strip, the brand colours, `Sfx` and `randomSeed`.
+- **Files:** `view.ts` draws the lane with an orthographic camera. `ui.ts` holds the DOM screens.
+  Every string is in `strings.ts`.
+- **Layout:**
+  - On a phone the canvas fills the screen, and the HUD respects the safe-area insets.
+  - On desktop the page shows a centred 9:16 frame.
+  - A phone held sideways shows «لف جوالك» and pauses.
+- **Input:**
+  - `pointerdown` on the play area, or Space/ArrowUp, sends `flap`. Esc/P pauses, Enter starts.
+    Everything goes through the `InputBus`.
+  - `touch-action: none`, and no selection, long-press menu, double-tap zoom, pull-to-refresh
+    or overscroll.
+- **Loop:**
+  - Each `requestAnimationFrame` drains the bus, then calls `game.advance(dt)`.
+  - The view interpolates between the state before the last step (`game.beforeStep` →
+    `view.snapshot`) and the current one, using `game.alpha`. This is render-only, so 90 and
+    120 Hz screens stay smooth.
+  - `visibilitychange` (hidden), `blur` and `pagehide` call `game.suspend()`.
+  - Audio unlocks on the first tap.
+- **Seeds:** `getRunSpec(mode, practice)` in `run-spec.ts` is the only place a round's seed is
+  chosen. Today it uses crypto; in step 2 it will ask the server. Practice runs carry
+  `practice: true` and are never submitted.
+- **Debug:** `?debug=1` logs each ranked `RunLog` and result to the console, keeps the last 5 in
+  `window.__joudRuns`, and shows fps, draw calls, state, tick and seed.
+- **Other flags:** `?mode=`, `?mute=1`, `?model=placeholder`, `?fx=0`. URL tuning (`?g=` etc.) is
+  ignored here, because ranked rules only come from the ruleset.
+- **Offline:** `public/play/sw.js` caches what the first load fetched, so the game works offline
+  afterwards. It makes no network calls of its own.
+
 ## Rulesets (`src/core/ruleset.ts`)
 A `Ruleset` holds everything that affects a result: id, step, max ticks, the per-mode `Config`
 (lane size and tuning), the points table, the mode multipliers, the course weights and the

@@ -5,20 +5,52 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
 import { iwsdkDev } from '@iwsdk/vite-plugin-dev';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+
+/**
+ * Records which source modules went into which output chunk (.tmp/build/chunk-modules.json,
+ * not deployed). scripts/check-mobile-bundle.mjs reads it to prove play/ ships no IWSDK code.
+ */
+function chunkModules(): Plugin {
+  return {
+    name: 'joud-chunk-modules',
+    apply: 'build',
+    writeBundle(_options, bundle) {
+      const out: Record<string, { imports: string[]; dynamicImports: string[]; modules: string[] }> = {};
+      for (const [file, chunk] of Object.entries(bundle)) {
+        if (chunk.type !== 'chunk') continue;
+        out[file] = {
+          imports: chunk.imports,
+          dynamicImports: chunk.dynamicImports,
+          modules: chunk.moduleIds.map((id) => relative(process.cwd(), id).split('\\').join('/')),
+        };
+      }
+      const dir = resolve('.tmp/build');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(resolve(dir, 'chunk-modules.json'), JSON.stringify(out, null, 1));
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [iwsdkDev()],
+  plugins: [iwsdkDev(), chunkModules()],
   server: { host: '0.0.0.0', port: 8081, open: false },
   build: {
     outDir: 'dist',
     sourcemap: process.env.NODE_ENV !== 'production',
     target: 'esnext',
-    // Two entries share one super-three chunk: the IWSDK game and the plain Three.js fallback.
-    // check/ replays the determinism fixtures in any browser (no Three.js).
+    // The IWSDK game, the plain Three.js fallback and the phone game (play/) share one
+    // super-three chunk. check/ replays the determinism fixtures in any browser (no Three.js).
     rollupOptions: {
-      input: { main: './index.html', fallback: './fallback.html', check: './check/index.html' },
+      input: {
+        main: './index.html',
+        fallback: './fallback.html',
+        play: './play/index.html',
+        check: './check/index.html',
+      },
     },
   },
   esbuild: { target: 'esnext' },

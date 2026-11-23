@@ -1,0 +1,295 @@
+// Joud Bird on phones: a portrait, one-tap game on the same src/core as the VR pages.
+// Plain three (the same super-three), no IWSDK, no WebXR. Docs: docs/mobile.md.
+
+import './mobile.css';
+import { WebGLRenderer } from 'three';
+import { isMode, type Mode, parseUrl } from '../core/config';
+import { Game } from '../core/game';
+import { type GameCommand, InputBus } from '../core/input';
+import { impactPoints } from '../core/ruleset';
+import { Sfx } from '../scene/audio';
+import { getRunSpec, type MobileRunSpec, RULESET, recordRun } from './run-spec';
+import { MobileUi } from './ui';
+import { MobileView } from './view';
+
+// ---------- settings ----------
+const url = parseUrl(window.location.search); // flags and ?mode= only: ranked rules never take URL tuning
+const STORE = 'joudbird.mobile';
+const store = {
+  get(key: string): string | null {
+    try {
+      return window.localStorage.getItem(`${STORE}.${key}`);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string): void {
+    try {
+      window.localStorage.setItem(`${STORE}.${key}`, value);
+    } catch {
+      // storage blocked: settings just won't persist
+    }
+  },
+};
+const bestKey = (m: Mode) => `${RULESET.id}.best.${m}`;
+const loadBest = (m: Mode) => {
+  const n = Number(store.get(bestKey(m)));
+  return Number.isInteger(n) && n > 0 ? n : 0;
+};
+
+const savedMode = store.get('mode');
+let mode: Mode = url.applied.includes('mode') ? url.mode : isMode(savedMode) ? savedMode : url.mode;
+let practice = store.get('practice') === '1';
+let spec: MobileRunSpec = getRunSpec(mode, practice);
+
+// ---------- core ----------
+const game = new Game(RULESET.modes[mode], {
+  ruleset: RULESET,
+  mode,
+  seed: spec.seed,
+  best: loadBest(mode),
+});
+const bus = new InputBus();
+const sfx = new Sfx(url.flags.mute || store.get('muted') === '1');
+
+// ---------- view ----------
+const ui = new MobileUi(
+  {
+    onMode(m) {
+      if (game.state !== 'attract') return;
+      mode = m;
+      store.set('mode', m);
+      game.configure(RULESET.modes[m], m, loadBest(m));
+      view.setConfig(game.cfg);
+      sfx.click();
+    },
+    onPractice(on) {
+      practice = on;
+      store.set('practice', on ? '1' : '0');
+    },
+    onPlay: () => bus.push('start'),
+    onPause: () => bus.push('pause'),
+    onResume: () => bus.push('pause'),
+    onAgain: () => bus.push('restart'),
+    onHome() {
+      game.toAttract();
+      game.best = loadBest(mode);
+    },
+    onMute() {
+      store.set('muted', sfx.toggleMute() ? '1' : '0');
+    },
+  },
+  (m) => RULESET.multipliers[m],
+);
+
+const renderer = new WebGLRenderer({ canvas: ui.canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+const view = new MobileView(game.cfg, {
+  model: url.flags.model === 'joud',
+  glbUrl: new URL('../models/joud.glb', window.location.href).href,
+  fx: url.flags.fx,
+  scenery: 1,
+});
+game.beforeStep = () => view.snapshot(game);
+
+function resize(): void {
+  const w = ui.frame.clientWidth;
+  const h = ui.frame.clientHeight;
+  renderer.setSize(w, h, false);
+  view.resize(w, h);
+}
+new ResizeObserver(resize).observe(ui.frame);
+resize();
+
+// ---------- rounds and seeds ----------
+/** True if `cmd` will start a new round from the current state. */
+function startsRound(cmd: GameCommand): boolean {
+  switch (game.state) {
+    case 'attract':
+      return cmd === 'flap' || cmd === 'start' || cmd === 'restart';
+    case 'gameOver':
+      return cmd === 'restart' || ((cmd === 'flap' || cmd === 'start') && game.canRestartWithTrigger);
+    case 'paused':
+      return cmd === 'restart';
+    default:
+      return false;
+  }
+}
+
+let roundPractice = practice;
+function handle(cmd: GameCommand): void {
+  if (startsRound(cmd)) {
+    // One place decides a round's seed: getRunSpec (server-issued in step 2).
+    spec = getRunSpec(mode, practice);
+    roundPractice = spec.practice;
+    game.setSeed(spec.seed);
+    game.best = roundPractice ? Number.MAX_SAFE_INTEGER : loadBest(mode);
+  }
+  const before = game.state;
+  game.handle(cmd);
+  if (before === 'paused' && game.state === 'playing') view.resetInterpolation(game);
+}
+
+// ---------- input ----------
+let audioUnlocked = false;
+function unlockAudio(): void {
+  if (audioUnlocked && sfx.unlocked) return;
+  sfx.unlock();
+  audioUnlocked = true;
+}
+
+ui.frame.addEventListener('pointerdown', (e) => {
+  unlockAudio();
+  if ((e.target as Element).closest('button, input, label')) return;
+  if (game.state === 'ready' || game.state === 'playing') {
+    e.preventDefault();
+    bus.push('flap');
+  }
+});
+// iOS unlocks audio on touchend/click, not on touchstart.
+window.addEventListener('pointerup', unlockAudio);
+window.addEventListener('click', unlockAudio);
+window.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  unlockAudio();
+  if (e.code === 'Space' || e.code === 'ArrowUp') {
+    e.preventDefault();
+    bus.push(game.state === 'attract' ? 'start' : 'flap');
+  } else if (e.code === 'Enter' && (game.state === 'attract' || game.state === 'gameOver')) {
+    bus.push(game.state === 'attract' ? 'start' : 'restart');
+  } else if (e.code === 'Escape' || e.code === 'KeyP') {
+    bus.push('pause');
+  }
+});
+// No long-press menu, double-tap zoom, pinch or scroll.
+for (const type of ['contextmenu', 'dblclick', 'gesturestart', 'selectstart'] as const) {
+  window.addEventListener(type, (e) => e.preventDefault());
+}
+document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+// ---------- lifecycle ----------
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) game.suspend();
+});
+window.addEventListener('blur', () => game.suspend());
+window.addEventListener('pagehide', () => game.suspend());
+
+const landscapeQuery = window.matchMedia('(orientation: landscape)');
+const touchQuery = window.matchMedia('(pointer: coarse)');
+/** A phone held sideways: show «لف جوالك» and pause. */
+function phoneLandscape(): boolean {
+  return landscapeQuery.matches && touchQuery.matches && Math.min(window.innerWidth, window.innerHeight) < 600;
+}
+
+// ---------- loop ----------
+let lastPoints = 0;
+let lastFlowers = 0;
+let last = performance.now();
+let hudTimer = 0;
+let frames = 0;
+let fps = 0;
+
+function frame(now: number): void {
+  const dt = Math.min(0.25, Math.max(0, (now - last) / 1000));
+  last = now;
+  const landscape = phoneLandscape();
+  if (landscape) game.suspend();
+
+  bus.drain(handle);
+  game.advance(dt);
+
+  for (const e of game.events) {
+    switch (e) {
+      case 'flap':
+        view.bird.onFlap();
+        sfx.flap();
+        break;
+      case 'score': {
+        const d = game.obstaclePoints - lastPoints;
+        ui.showPop(`+${d}`);
+        sfx.score(game.field.passed);
+        break;
+      }
+      case 'flower':
+        ui.showPop(`+${game.flowers - lastFlowers} ✿`);
+        sfx.score(game.field.passed + 2);
+        break;
+      case 'hit':
+        view.bird.onHit();
+        sfx.hit();
+        break;
+      case 'state':
+        if (game.state === 'ready') view.resetInterpolation(game);
+        if (game.state === 'gameOver' && game.lastRun && game.lastResult) {
+          recordRun({ ...spec, practice: roundPractice }, game.lastRun, game.lastResult, url.flags.debug);
+          if (!roundPractice && game.newBest) store.set(bestKey(mode), String(game.best));
+        }
+        break;
+    }
+  }
+  game.events.length = 0;
+  lastPoints = game.obstaclePoints;
+  lastFlowers = game.flowers;
+
+  view.sync(game, dt, now / 1000);
+  view.render(renderer);
+  ui.update(game, {
+    mode,
+    practice: game.state === 'attract' ? practice : roundPractice,
+    muted: sfx.muted,
+    best: loadBestCached(),
+    lastPractice: roundPractice,
+    multiplier: (m) => RULESET.multipliers[m],
+    impact: game.lastResult ? game.lastResult.impact : impactPoints(game.score, mode, RULESET),
+    landscape,
+  });
+
+  if (url.flags.debug) {
+    frames++;
+    hudTimer += dt;
+    if (hudTimer >= 0.25) {
+      fps = Math.round(frames / hudTimer);
+      frames = 0;
+      hudTimer = 0;
+      const info = renderer.info.render;
+      ui.debug.hidden = false;
+      ui.debug.textContent = [
+        `fps ${fps}  calls ${info.calls}  tris ${info.triangles}`,
+        `${game.state}  tick ${game.tick}  seed ${game.seed}`,
+        `${RULESET.id} ${mode}${roundPractice ? ' practice' : ''}  bird ${view.bird.status}`,
+        `dpr ${renderer.getPixelRatio()}  ${ui.frame.clientWidth}×${ui.frame.clientHeight}`,
+      ].join('\n');
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+let bestCache = { mode: '' as string, value: 0, at: 0 };
+function loadBestCached(): number {
+  const now = performance.now();
+  if (bestCache.mode !== mode || now - bestCache.at > 1000) bestCache = { mode, value: loadBest(mode), at: now };
+  return bestCache.value;
+}
+
+requestAnimationFrame(frame);
+
+// ---------- offline ----------
+// After the first load the page works offline: the service worker caches what it served.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('./sw.js')
+      .then(async (reg) => {
+        await navigator.serviceWorker.ready;
+        // Hand over everything this first load fetched, so it is cached too.
+        const urls = performance
+          .getEntriesByType('resource')
+          .map((r) => r.name)
+          .filter((u) => u.startsWith(location.origin));
+        (reg.active ?? navigator.serviceWorker.controller)?.postMessage({ type: 'cache', urls: [location.href, ...urls] });
+      })
+      .catch(() => {
+        // no offline support on this browser: the game still works online
+      });
+  });
+}
