@@ -48,6 +48,8 @@ const GROUND_MARGIN = 0.22;
 /** The Bird model's body radius is ≈ 0.12 at its own scale. */
 const BIRD_MODEL_RADIUS = 0.12;
 const STRIPES_PER_UPDRAFT = 12;
+const MAX_STRIPES = 16 * STRIPES_PER_UPDRAFT;
+const MAX_FLOWERS = 16;
 
 /** Five round petals and a centre, flat, vertex coloured (radius ≈ 1). */
 function flowerGeometry(): BufferGeometry {
@@ -150,14 +152,14 @@ export class MobileView {
     this.stripes = new InstancedMesh(
       new PlaneGeometry(1, 1),
       new MeshBasicMaterial({ color: stripeColor }),
-      16 * STRIPES_PER_UPDRAFT,
+      MAX_STRIPES,
     );
     this.stripes.instanceMatrix.setUsage(DynamicDrawUsage);
     this.stripes.frustumCulled = false;
     this.stripes.position.z = -0.3;
     s.add(this.stripes);
 
-    this.flowers = new InstancedMesh(flowerGeometry(), new MeshBasicMaterial({ vertexColors: true }), 16);
+    this.flowers = new InstancedMesh(flowerGeometry(), new MeshBasicMaterial({ vertexColors: true }), MAX_FLOWERS);
     this.flowers.instanceMatrix.setUsage(DynamicDrawUsage);
     this.flowers.frustumCulled = false;
     this.flowers.position.z = 0.2;
@@ -302,7 +304,8 @@ export class MobileView {
       this.stack(x, cfg.pipeWidth, upperY + upper / 2, top, i * 2);
       this.stack(x, cfg.pipeWidth, lowerY - lower / 2, -top, i * 2 + 1);
 
-      if (o.updraft > 0 && stripes + STRIPES_PER_UPDRAFT <= this.stripes.count) {
+      // Capacities are constants: .count is lowered every frame to what is drawn.
+      if (o.updraft > 0 && stripes + STRIPES_PER_UPDRAFT <= MAX_STRIPES) {
         const lead = x + half;
         for (let c = 0; c < 3; c++) {
           const sx = lead + (o.updraft * (c + 0.5)) / 3;
@@ -316,7 +319,7 @@ export class MobileView {
         }
       }
 
-      if (o.flower === 1 && flowers < this.flowers.count) {
+      if (o.flower === 1 && flowers < MAX_FLOWERS) {
         const fy = this.lerp(this.prevFlowerY[i], o.flowerY, t, 0.2);
         const r = game.ruleset.kinds.flowerRadius * 1.1;
         this.m.makeRotationZ(this.fx ? time * 1.5 : 0);
