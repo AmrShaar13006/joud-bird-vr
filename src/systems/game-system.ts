@@ -22,6 +22,7 @@ import { createOverlay } from '../scene/overlay';
 import { recentreArt } from '../scene/panel-art';
 import { PanelController } from '../scene/panels';
 import { PlayWindow } from '../scene/play-window';
+import { randomSeed } from '../scene/seed';
 import { loadBest, saveBest } from '../scene/storage';
 import { STRINGS } from '../scene/strings';
 
@@ -76,7 +77,12 @@ export class GameSystem extends createSystem({}) {
     this.defaultMode = url.mode;
     this.flags = url.flags;
     const cfg = configFor(url.mode, url.overrides);
-    this.game = new Game(cfg, { best: loadBest(url.mode), mode: url.mode });
+    this.game = new Game(cfg, {
+      best: loadBest(url.mode),
+      mode: url.mode,
+      seed: randomSeed(),
+      nextSeed: randomSeed,
+    });
     this.bus = new InputBus();
     this.sfx = new Sfx(url.flags.mute);
     this.view = new PlayWindow(cfg, { fx: url.flags.fx });

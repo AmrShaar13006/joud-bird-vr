@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <title>Joud Bird — determinism check</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        padding: 16px;
+        font: 16px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        background: #f6f1e4;
+        color: #1d3b2a;
+      }
+      #verdict {
+        margin: 12px 0;
+        padding: 24px 12px;
+        border-radius: 16px;
+        text-align: center;
+        font-size: 64px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        background: #ddd;
+        color: #333;
+      }
+      body[data-result='pass'] #verdict { background: #2f7d4a; color: #fff; }
+      body[data-result='fail'] #verdict { background: #c0392b; color: #fff; }
+      #summary { font-size: 20px; font-weight: 600; direction: ltr; text-align: center; }
+      #ua { direction: ltr; font-size: 13px; opacity: 0.8; word-break: break-word; }
+      #lines {
+        direction: ltr;
+        font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+        white-space: pre-wrap;
+        background: rgba(0, 0, 0, 0.05);
+        padding: 8px;
+        border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body data-result="running">
+    <h1>فحص المحاكاة · Determinism check</h1>
+    <div id="verdict">…</div>
+    <div id="summary"></div>
+    <p id="ua"></p>
+    <pre id="lines"></pre>
+    <script type="module" src="../src/check/main.ts"></script>
+  </body>
+</html>

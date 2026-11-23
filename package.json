@@ -14,6 +14,9 @@
     "build": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:determinism": "node scripts/determinism/run.mjs",
+    "fixtures": "node scripts/run-ts.mjs scripts/gen-fixtures.ts && node scripts/build-sim.mjs",
+    "build:sim": "node scripts/build-sim.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

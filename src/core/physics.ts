@@ -5,9 +5,12 @@ export interface Body {
   vy: number;
 }
 
-/** Semi-implicit Euler: velocity first (clamped to maxFall), then position. */
-export function integrate(body: Body, dt: number, cfg: Readonly<Config>): void {
-  body.vy += cfg.gravity * dt;
+/**
+ * Semi-implicit Euler: velocity first (clamped to maxFall), then position.
+ * `lift` is extra upward acceleration (an updraft); gravity + 0 is exactly gravity.
+ */
+export function integrate(body: Body, dt: number, cfg: Readonly<Config>, lift = 0): void {
+  body.vy += (cfg.gravity + lift) * dt;
   if (body.vy < cfg.maxFall) body.vy = cfg.maxFall;
   body.y += body.vy * dt;
 }
