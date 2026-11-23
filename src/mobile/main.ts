@@ -9,6 +9,7 @@ import { type GameCommand, InputBus } from '../core/input';
 import { impactPoints } from '../core/ruleset';
 import { Sfx } from '../scene/audio';
 import { getRunSpec, type MobileRunSpec, RULESET, recordRun } from './run-spec';
+import { chooseTier, FrameWatchdog, lowerTier, parseTier, type Tier, TIER_SETTINGS } from './perf';
 import { MobileUi } from './ui';
 import { MobileView } from './view';
 
@@ -82,14 +83,41 @@ const ui = new MobileUi(
   (m) => RULESET.multipliers[m],
 );
 
-const renderer = new WebGLRenderer({ canvas: ui.canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-const view = new MobileView(game.cfg, {
-  model: url.flags.model === 'joud',
-  glbUrl: new URL('../models/joud.glb', window.location.href).href,
-  fx: url.flags.fx,
-  scenery: 1,
+// ---------- render tier (rendering only; the sim is the same on every phone) ----------
+const forcedTier = parseTier(new URLSearchParams(window.location.search).get('tier'));
+let tier: Tier =
+  forcedTier ??
+  chooseTier({
+    cores: navigator.hardwareConcurrency || 0,
+    memoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 0,
+    screenW: window.screen.width,
+    screenH: window.screen.height,
+    dpr: window.devicePixelRatio || 1,
+  });
+const startTier = TIER_SETTINGS[tier];
+const watchdog = new FrameWatchdog();
+
+const renderer = new WebGLRenderer({
+  canvas: ui.canvas,
+  antialias: startTier.antialias,
+  powerPreference: 'high-performance',
 });
+const view = new MobileView(game.cfg, {
+  model: url.flags.model === 'joud' && startTier.birdGlb,
+  glbUrl: new URL('../models/joud.glb', window.location.href).href,
+  fx: url.flags.fx && startTier.effects,
+  scenery: startTier.scenery,
+});
+
+/** Apply a tier's settings (antialias stays as created: a context can't change it). */
+function applyTier(t: Tier): void {
+  const s = TIER_SETTINGS[t];
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, s.pixelRatio));
+  view.setEffects(url.flags.fx && s.effects);
+  view.setScenery(s.scenery);
+  view.setBirdDetail(url.flags.model === 'joud' && s.birdGlb);
+  resize();
+}
 game.beforeStep = () => view.snapshot(game);
 
 function resize(): void {
@@ -99,7 +127,7 @@ function resize(): void {
   view.resize(w, h);
 }
 new ResizeObserver(resize).observe(ui.frame);
-resize();
+applyTier(tier);
 
 // ---------- rounds and seeds ----------
 /** True if `cmd` will start a new round from the current state. */
@@ -198,6 +226,16 @@ function frame(now: number): void {
   bus.drain(handle);
   game.advance(dt);
 
+  // Frame-time watchdog: one tier down after 3 s averaging over 20 ms. Never up.
+  if (game.state === 'playing' && !forcedTier) {
+    if (watchdog.frame(dt) && tier !== 'low') {
+      tier = lowerTier(tier);
+      applyTier(tier);
+    }
+  } else {
+    watchdog.reset();
+  }
+
   for (const e of game.events) {
     switch (e) {
       case 'flap':
@@ -257,7 +295,7 @@ function frame(now: number): void {
         `fps ${fps}  calls ${info.calls}  tris ${info.triangles}`,
         `${game.state}  tick ${game.tick}  seed ${game.seed}`,
         `${RULESET.id} ${mode}${roundPractice ? ' practice' : ''}  bird ${view.bird.status}`,
-        `dpr ${renderer.getPixelRatio()}  ${ui.frame.clientWidth}×${ui.frame.clientHeight}`,
+        `tier ${tier}${forcedTier ? ' (?tier)' : ''}  dpr ${renderer.getPixelRatio()}  ${ui.frame.clientWidth}×${ui.frame.clientHeight}`,
       ].join('\n');
     }
   }
