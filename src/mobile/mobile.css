@@ -305,3 +305,66 @@ button {
   pointer-events: none;
   z-index: 6;
 }
+
+/* ---------- ranked play: status, leaderboard, nickname picker (step 2) ---------- */
+.row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.status {
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 12px;
+  background: rgba(248, 232, 136, 0.16);
+  font: 700 16px var(--font);
+}
+.status.ok {
+  background: var(--butter);
+  color: var(--deep-green);
+}
+.board {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  width: min(100%, 360px);
+  max-height: 46vh;
+  overflow-y: auto;
+  font: 700 17px var(--font);
+  font-variant-numeric: tabular-nums;
+}
+.board li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 10px;
+}
+.board li:nth-child(odd) {
+  background: rgba(248, 232, 200, 0.12);
+}
+.board li.top {
+  color: var(--butter);
+}
+.board .num {
+  direction: ltr;
+}
+.names {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  width: min(100%, 360px);
+}
+.names button {
+  padding: 10px 4px;
+  border: 2px solid var(--butter);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--cream);
+  font: 700 17px var(--font);
+}
+.names button[aria-pressed='true'] {
+  background: var(--butter);
+  color: var(--deep-green);
+}

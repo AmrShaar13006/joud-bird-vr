@@ -29,9 +29,12 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
     120 Hz screens stay smooth.
   - `visibilitychange` (hidden), `blur` and `pagehide` call `game.suspend()`.
   - Audio unlocks on the first tap.
-- **Seeds:** `getRunSpec(mode, practice)` in `run-spec.ts` is the only place a round's seed is
-  chosen. Today it uses crypto; in step 2 it will ask the server. Practice runs carry
-  `practice: true` and are never submitted.
+- **Seeds:** `getRunSpec(mode, practice, ticket)` in `run-spec.ts` is the only place a round's seed
+  is chosen.
+  - Ranked rounds use a server ticket (step 2, `docs/server.md`).
+  - Practice uses crypto.
+  - A ranked request without a ticket plays as practice («بدون اتصال: جولة تدريب»).
+  - Practice runs carry `practice: true` and are never submitted.
 - **Debug:** `?debug=1` logs each ranked `RunLog` and result to the console, keeps the last 5 in
   `window.__joudRuns`, and shows fps, draw calls, state, tick and seed. It also puts the game on
   `window.__joudGame` for screenshot scripts. Adding `&autoplay=1` makes the core autopilot
