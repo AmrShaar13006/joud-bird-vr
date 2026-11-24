@@ -3,22 +3,23 @@
 // Lambert/Basic materials, no shadows or post-processing.
 
 import {
-  BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
   Color,
   DirectionalLight,
   DynamicDrawUsage,
   Float32BufferAttribute,
   Group,
   HemisphereLight,
+  InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
-  MeshLambertMaterial,
   OrthographicCamera,
   PlaneGeometry,
   Scene,
+  SRGBColorSpace,
   Vector3,
   type WebGLRenderer,
 } from 'three';
@@ -38,22 +39,40 @@ import {
   NEAR_PARALLAX,
   NEAR_TILE_M,
 } from './backdrop';
+import { boxTile, type Column, drawBoxAtlas, tileRect } from './box-art';
 
 export interface ViewOptions {
   /** Load joud.glb (false: the code-built placeholder bird). */
   model: boolean;
   glbUrl: string;
-  /** Decorative effects (flower spin, updraft motion). */
+  /** Decorative effects (flower spin, updraft motion, backdrop parallax). */
   fx: boolean;
-  /** Flower strip under the lane. */
+  /** Flower strip under the lane and the near backdrop layer. */
   scenery: boolean;
+  /** Box-face atlas resolution: 1 (default), or 0.5 on the low tier. */
+  atlasScale?: number;
 }
 
 const BOX_H = 0.06;
 const BOX_SEAM = 0.004;
-const BOX_DEPTH = 0.04;
 const MAX_BOXES = 640;
-const BOX_COLORS = [new Color(BRAND.butter), new Color(BRAND.deepGreen), new Color(BRAND.redOrange)];
+
+/**
+ * Flat, unlit material showing one atlas tile per instance: `aTile` = (u0, v0, width, height)
+ * replaces the plane's 0–1 UVs. Exact brand colours, one draw call for every box.
+ */
+function boxFaceMaterial(atlasScale: number): MeshBasicMaterial {
+  const tex = new CanvasTexture(drawBoxAtlas(atlasScale));
+  tex.colorSpace = SRGBColorSpace;
+  tex.anisotropy = 2;
+  const mat = new MeshBasicMaterial({ map: tex });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', 'attribute vec4 aTile;\nvoid main() {')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvMapUv = aTile.xy + uv * aTile.zw;');
+  };
+  return mat;
+}
 /** Ground and flowers visible under the lane. */
 const GROUND_MARGIN = 0.22;
 /** The Bird model's body radius is ≈ 0.12 at its own scale. */
@@ -108,6 +127,8 @@ export class MobileView {
   readonly bird: Bird;
   private readonly birdHolder = new Group();
   private readonly boxes: InstancedMesh;
+  /** Per-box atlas tile rectangle (u0, v0, width, height). */
+  private readonly boxTiles: InstancedBufferAttribute;
   private readonly stripes: InstancedMesh;
   private readonly flowers: InstancedMesh;
   private readonly m = new Matrix4();
@@ -166,15 +187,19 @@ export class MobileView {
       s.add(strip);
     }
 
-    // Lights for the Lambert boxes and bird.
+    // Lights for the Lambert bird.
     s.add(new HemisphereLight('#ffffff', '#88aa77', 2.2));
     const sun = new DirectionalLight('#ffffff', 1.4);
     sun.position.set(-1, 2, 3);
     s.add(sun);
 
-    this.boxes = new InstancedMesh(new BoxGeometry(1, 1, 1), new MeshLambertMaterial(), MAX_BOXES);
+    // Campaign boxes: front faces only (the ortho camera never sees their sides).
+    const boxGeo = new PlaneGeometry(1, 1);
+    this.boxTiles = new InstancedBufferAttribute(new Float32Array(MAX_BOXES * 4), 4);
+    this.boxTiles.setUsage(DynamicDrawUsage);
+    boxGeo.setAttribute('aTile', this.boxTiles);
+    this.boxes = new InstancedMesh(boxGeo, boxFaceMaterial(opts.atlasScale ?? 1), MAX_BOXES);
     this.boxes.instanceMatrix.setUsage(DynamicDrawUsage);
-    this.boxes.setColorAt(0, BOX_COLORS[0]);
     this.boxes.frustumCulled = false;
     s.add(this.boxes);
 
@@ -290,24 +315,27 @@ export class MobileView {
 
   private boxCount = 0;
 
-  private pushBox(x: number, y: number, w: number, h: number, colorIndex: number): void {
+  private pushBox(x: number, y: number, w: number, h: number, tile: number, keepTop: boolean): void {
     if (this.boxCount >= MAX_BOXES || h <= 0) return;
-    this.m.makeScale(w, h, BOX_DEPTH);
+    this.m.makeScale(w, h, 1);
     this.m.setPosition(x, y, 0);
     this.boxes.setMatrixAt(this.boxCount, this.m);
-    this.boxes.setColorAt(this.boxCount, BOX_COLORS[colorIndex % BOX_COLORS.length]);
+    // A box cut short shows part of its face, never a squashed one.
+    const [u0, v0, uw, vh] = tileRect(tile, h / (BOX_H - BOX_SEAM), keepTop);
+    this.boxTiles.setXYZW(this.boxCount, u0, v0, uw, vh);
     this.boxCount++;
   }
 
-  /** Stack campaign boxes from `from` towards `to` (either direction), clipped at `to`. */
-  private stack(x: number, w: number, from: number, to: number, seed: number): void {
+  /** Stack campaign boxes from the gap edge `from` towards `to` (either direction), clipped at `to`. */
+  private stack(x: number, w: number, from: number, to: number, slot: number, column: Column): void {
     const dir = to > from ? 1 : -1;
     const len = Math.abs(to - from);
     let k = 0;
     for (let d = 0; d < len; d += BOX_H) {
       const h = Math.min(BOX_H, len - d) - BOX_SEAM;
       const yc = from + dir * (d + (h + BOX_SEAM) / 2);
-      this.pushBox(x, yc, w, h, seed + k);
+      // Stacking up, a cut box keeps its bottom (it runs on past the cut); stacking down, its top.
+      this.pushBox(x, yc, w, h, boxTile(slot, k, column), dir < 0);
       k++;
     }
   }
@@ -361,10 +389,10 @@ export class MobileView {
           lowerY = g2;
           lower = o.gap2;
         }
-        this.stack(x, cfg.pipeWidth, lowerY + lower / 2, upperY - upper / 2, i * 2 + 1);
+        this.stack(x, cfg.pipeWidth, lowerY + lower / 2, upperY - upper / 2, i, 'middle');
       }
-      this.stack(x, cfg.pipeWidth, upperY + upper / 2, top, i * 2);
-      this.stack(x, cfg.pipeWidth, lowerY - lower / 2, -top, i * 2 + 1);
+      this.stack(x, cfg.pipeWidth, upperY + upper / 2, top, i, 'upper');
+      this.stack(x, cfg.pipeWidth, lowerY - lower / 2, -top, i, 'lower');
 
       // Capacities are constants: .count is lowered every frame to what is drawn.
       if (o.updraft > 0 && stripes + STRIPES_PER_UPDRAFT <= MAX_STRIPES) {
@@ -392,7 +420,7 @@ export class MobileView {
     }
     this.boxes.count = this.boxCount;
     this.boxes.instanceMatrix.needsUpdate = true;
-    if (this.boxes.instanceColor) this.boxes.instanceColor.needsUpdate = true;
+    this.boxTiles.needsUpdate = true;
     this.stripes.count = stripes;
     this.stripes.instanceMatrix.needsUpdate = true;
     this.flowers.count = flowers;

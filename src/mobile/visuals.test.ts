@@ -12,7 +12,56 @@ import {
   NEAR_TILE_M,
 } from './backdrop';
 
+import { ATLAS_COLS, ATLAS_ROWS, boxTile, tileRect, WORD_TILES } from './box-art';
+
 const lane = MOBILE1.modes.normal;
+
+describe('campaign box faces', () => {
+  it('one column per obstacle reads أنا / ادّعم / جود top to bottom at the gap', () => {
+    const [ana, adam, joud] = WORD_TILES;
+    // Even slot: the upper column (k = 0 at the gap, counting upwards).
+    expect([2, 1, 0].map((k) => boxTile(4, k, 'upper'))).toEqual([ana, adam, joud]);
+    // Odd slot: the lower column (k = 0 at the gap, counting downwards).
+    expect([0, 1, 2].map((k) => boxTile(3, k, 'lower'))).toEqual([ana, adam, joud]);
+    // The other column, the fork's middle block and boxes further out are decorative.
+    const words = new Set<number>(WORD_TILES);
+    for (let k = 0; k < 20; k++) {
+      expect(words.has(boxTile(4, k, 'lower'))).toBe(false);
+      expect(words.has(boxTile(3, k, 'upper'))).toBe(false);
+      expect(words.has(boxTile(5, k, 'middle'))).toBe(false);
+      if (k >= 3) expect(words.has(boxTile(4, k, 'upper'))).toBe(false);
+    }
+  });
+
+  it('every tile index is in the atlas and the pick is deterministic', () => {
+    for (let slot = 0; slot < 8; slot++)
+      for (let k = 0; k < 40; k++)
+        for (const c of ['upper', 'lower', 'middle'] as const) {
+          const t = boxTile(slot, k, c);
+          expect(t).toBeGreaterThanOrEqual(0);
+          expect(t).toBeLessThan(ATLAS_COLS * ATLAS_ROWS);
+          expect(boxTile(slot, k, c)).toBe(t);
+        }
+  });
+
+  it('tile rectangles stay inside their tile; a cut box crops instead of squashing', () => {
+    for (let t = 0; t < ATLAS_COLS * ATLAS_ROWS; t++) {
+      const [u0, v0, uw, vh] = tileRect(t, 1, false);
+      const col = t % ATLAS_COLS;
+      const row = Math.floor(t / ATLAS_COLS);
+      expect(u0).toBeGreaterThan(col / ATLAS_COLS);
+      expect(u0 + uw).toBeLessThan((col + 1) / ATLAS_COLS);
+      expect(v0).toBeGreaterThan(1 - (row + 1) / ATLAS_ROWS);
+      expect(v0 + vh).toBeLessThan(1 - row / ATLAS_ROWS);
+      // Half a box keeps the bottom half or the top half of the same tile.
+      const bottom = tileRect(t, 0.5, false);
+      const top = tileRect(t, 0.5, true);
+      expect(bottom[3]).toBeCloseTo(vh / 2, 9);
+      expect(bottom[1]).toBeCloseTo(v0, 9);
+      expect(top[1] + top[3]).toBeCloseTo(v0 + vh, 9);
+    }
+  });
+});
 
 describe('venue backdrop', () => {
   const layers = [
