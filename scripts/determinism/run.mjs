@@ -86,6 +86,18 @@ if (deno.status !== 0) {
     console.log(out);
     row(`Deno ${ver}`, 0, 1, `exit ${d.status}`);
   }
+  // Edge Function handlers (issue-run, submit-run) with a fake database: every playable
+  // fixture verifies through submit-run, and every rejection path is covered.
+  const t = sh('deno', ['test', '--config', 'supabase/functions/deno.json', '--allow-read=.', 'supabase/functions'], { capture: true });
+  const tout = `${t.stdout}${t.stderr}`.replace(/\x1b\[[0-9;]*m/g, '');
+  const tm = tout.match(/(\d+) passed \| (\d+) failed/);
+  if (tm) {
+    for (const l of tout.split('\n')) if (/\.\.\. FAILED/.test(l)) console.log(l);
+    row(`Deno ${ver} (Edge Function tests)`, Number(tm[1]), Number(tm[1]) + Number(tm[2]), 'issue-run / submit-run, fake DB');
+  } else {
+    console.log(tout);
+    row('Deno (Edge Function tests)', 0, 1, `exit ${t.status}`);
+  }
 }
 
 // 4. Browsers.

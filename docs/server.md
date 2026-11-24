@@ -58,8 +58,8 @@ run. Practice and the VR pages never talk to it. The plan is in `prompts/06-mobi
 | function | auth | what |
 |---|---|---|
 | `sim-selftest` | anon JWT | Replays fixture files posted in the body. **Staging only**: replays cost CPU. |
-| `issue-run` | player JWT | Issues a ticket (PR 6). |
-| `submit-run` | player JWT | Verifies and stores a run (PR 6). |
+| `issue-run` | player JWT | `POST { mode }` → a ticket: ruleset `mobile-1`, a uint32 seed from `crypto.getRandomValues`, 30 min to live. Returns 429 (`tooManyOpen` / `tooManyPerHour`) past the limits. |
+| `submit-run` | player JWT | `POST { ticketId, flaps, endTick, clientScore }` → the server's own result. |
 
 - The functions use `supabase/functions/_shared/joud-sim.js`, the committed sim bundle from
   `npm run build:sim`, for every game rule. There is no second implementation.
@@ -68,6 +68,32 @@ run. Practice and the VR pages never talk to it. The plan is in `prompts/06-mobi
   in an untracked `.env.staging`).
 - **Result, 24 Nov:** 51/51 PASS on `supabase-edge-runtime-1.79.1` (compatible with Deno 2.1.4,
   V8 11.6), an older V8 than the phones and Node.
+
+### `submit-run` checks, in order (`_shared/submit.ts`)
+1. **Ticket:** it exists, is this player's, is unused and not expired (`badTicket`, `ticketUsed`, `ticketExpired`).
+   - An **identical retry** of a run already stored (same flaps and end tick) gets the stored answer
+     again with `duplicate: true`, and nothing new is stored. That lets the phone's retry queue be safe.
+2. **Log:** built from the ticket's ruleset, mode and seed plus the phone's flaps and end tick, then
+   `validateLog` (step 1's reason codes).
+3. **Replay:** it must end exactly at the claimed tick by `hit`, `floor`, `ceiling` or `maxTicks`;
+   otherwise `endMismatch`.
+4. **Wall clock:** `now − issued_at` must be at least the run's playing time minus 5 s (`tooFast`).
+5. **Store:** the replay's score, flowers, impact, end reason and hash. `clientScore` is only compared
+   (`scoreMismatch: true` in the reply).
+
+Every rejection is stored with its reason, and the reply is 200 `{ valid: false, reason }`.
+Malformed bodies get 400, a missing player 401, server errors 500 (the phone retries those).
+
+**Tests:** `deno test --config supabase/functions/deno.json --allow-read=. supabase/functions` (11
+tests, fake database, no network). Every playable `mobile-1` fixture verifies through
+`submit-run`, and every rejection has its own test. They also run as a row in
+`npm run test:determinism`.
+
+**Live checks on staging, 24 Nov** (SQL with a temporary test user, then deleted):
+- The 4th open ticket was refused.
+- A reused ticket was stored as `ticketUsed`.
+- The leaderboard showed «وردة 97»; `get_my_best` and `get_impact_total` were correct.
+- Both functions answer 401 without a player token and 405 to GET.
 
 ## Deploying
 - **Migrations:** they live in `supabase/migrations/` and are applied in filename order. Apply
