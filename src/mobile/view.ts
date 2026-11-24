@@ -26,6 +26,7 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Config } from '../core/config';
 import type { Game } from '../core/game';
+import type { ObstacleKind, PointsTable } from '../core/ruleset';
 import { Bird } from '../scene/bird';
 import { BRAND, buildFlowerStrip } from '../scene/scenery';
 import {
@@ -39,7 +40,9 @@ import {
   NEAR_PARALLAX,
   NEAR_TILE_M,
 } from './backdrop';
-import { boxTile, type Column, drawBoxAtlas, tileRect } from './box-art';
+import { ScoreBurst } from '../scene/burst';
+import { boxTile, type Column, drawBoxAtlas, tileRect, wordColumn } from './box-art';
+import { badgeKey, badgeRect, type Cue, cueFor, drawBadgeAtlas, SPARKLE_TILE } from './cues';
 
 export interface ViewOptions {
   /** Load joud.glb (false: the code-built placeholder bird). */
@@ -51,27 +54,49 @@ export interface ViewOptions {
   scenery: boolean;
   /** Box-face atlas resolution: 1 (default), or 0.5 on the low tier. */
   atlasScale?: number;
+  /** The ruleset's points table: badges show exactly what a gap pays. */
+  points: Readonly<PointsTable>;
 }
 
 const BOX_H = 0.06;
 const BOX_SEAM = 0.004;
 const MAX_BOXES = 640;
 
+const MAX_BADGES = 24;
+const BADGE_SIZE = 0.068;
+const LIP_SPARKLE = 0.034;
+/** VR burst sizes are for a 2.8 m window; the phone lane is 1.0 wide. */
+const BURST_SCALE = 0.6;
+
 /**
  * Flat, unlit material showing one atlas tile per instance: `aTile` = (u0, v0, width, height)
- * replaces the plane's 0–1 UVs. Exact brand colours, one draw call for every box.
+ * replaces the plane's 0–1 UVs. Exact brand colours, one draw call per mesh. `alphaTest`
+ * gives round cut-outs without blending.
  */
-function boxFaceMaterial(atlasScale: number): MeshBasicMaterial {
-  const tex = new CanvasTexture(drawBoxAtlas(atlasScale));
+function atlasMaterial(canvas: HTMLCanvasElement, alphaTest = 0): MeshBasicMaterial {
+  const tex = new CanvasTexture(canvas);
   tex.colorSpace = SRGBColorSpace;
   tex.anisotropy = 2;
-  const mat = new MeshBasicMaterial({ map: tex });
+  const mat = new MeshBasicMaterial({ map: tex, alphaTest });
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('void main() {', 'attribute vec4 aTile;\nvoid main() {')
       .replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvMapUv = aTile.xy + uv * aTile.zw;');
   };
   return mat;
+}
+
+/** Instanced unit planes with a per-instance atlas tile. */
+function tiledPlanes(material: MeshBasicMaterial, max: number): { mesh: InstancedMesh; tiles: InstancedBufferAttribute } {
+  const geo = new PlaneGeometry(1, 1);
+  const tiles = new InstancedBufferAttribute(new Float32Array(max * 4), 4);
+  tiles.setUsage(DynamicDrawUsage);
+  geo.setAttribute('aTile', tiles);
+  const mesh = new InstancedMesh(geo, material, max);
+  mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+  mesh.frustumCulled = false;
+  mesh.count = 0;
+  return { mesh, tiles };
 }
 /** Ground and flowers visible under the lane. */
 const GROUND_MARGIN = 0.22;
@@ -129,9 +154,18 @@ export class MobileView {
   private readonly boxes: InstancedMesh;
   /** Per-box atlas tile rectangle (u0, v0, width, height). */
   private readonly boxTiles: InstancedBufferAttribute;
+  private readonly badges: InstancedMesh;
+  private readonly badgeRects: InstancedBufferAttribute;
+  /** Badge-atlas tile per obstacle kind (no entry: no badge). Looked up per frame, no allocation. */
+  private readonly kindTile = new Map<ObstacleKind, number>();
+  private badgeCount = 0;
+  private readonly burst: ScoreBurst;
+  private readonly burstHolder = new Group();
   private readonly stripes: InstancedMesh;
   private readonly flowers: InstancedMesh;
   private readonly m = new Matrix4();
+  /** Scratch tile rectangle (no allocation per frame). */
+  private readonly rect: [number, number, number, number] = [0, 0, 0, 0];
   private readonly tmpScale = new Vector3();
   private cfg: Readonly<Config>;
   private fx: boolean;
@@ -194,14 +228,34 @@ export class MobileView {
     s.add(sun);
 
     // Campaign boxes: front faces only (the ortho camera never sees their sides).
-    const boxGeo = new PlaneGeometry(1, 1);
-    this.boxTiles = new InstancedBufferAttribute(new Float32Array(MAX_BOXES * 4), 4);
-    this.boxTiles.setUsage(DynamicDrawUsage);
-    boxGeo.setAttribute('aTile', this.boxTiles);
-    this.boxes = new InstancedMesh(boxGeo, boxFaceMaterial(opts.atlasScale ?? 1), MAX_BOXES);
-    this.boxes.instanceMatrix.setUsage(DynamicDrawUsage);
-    this.boxes.frustumCulled = false;
+    const boxes = tiledPlanes(atlasMaterial(drawBoxAtlas(opts.atlasScale ?? 1)), MAX_BOXES);
+    this.boxes = boxes.mesh;
+    this.boxTiles = boxes.tiles;
     s.add(this.boxes);
+
+    // Cues: one badge per gap that pays more than a gate (src/mobile/cues.ts). Gameplay
+    // information, so they stay on with effects off and on every tier.
+    const kinds = ['stairs', 'updraft', 'narrow', 'moving', 'fork'] as const;
+    const cues = kinds.map((kind) => cueFor({ kind }, opts.points)).filter((c): c is Cue => c !== null);
+    const badgeAtlas = drawBadgeAtlas(cues);
+    kinds.forEach((kind) => {
+      const c = cueFor({ kind }, opts.points);
+      const tile = c ? badgeAtlas.tiles.get(badgeKey(c)) : undefined;
+      if (tile !== undefined) this.kindTile.set(kind, tile);
+    });
+    const badges = tiledPlanes(atlasMaterial(badgeAtlas.canvas, 0.5), MAX_BADGES);
+    this.badges = badges.mesh;
+    this.badgeRects = badges.tiles;
+    this.badges.position.z = 0.1;
+    s.add(this.badges);
+
+    // Score juice: the VR petal/sparkle burst, scaled to the phone lane (effects only).
+    this.burst = new ScoreBurst(0);
+    this.burstHolder.scale.setScalar(BURST_SCALE);
+    this.burstHolder.position.z = 0.6;
+    this.burstHolder.visible = opts.fx;
+    this.burstHolder.add(this.burst.mesh);
+    s.add(this.burstHolder);
 
     const stripeColor = new Color(BRAND.butter).lerp(new Color('#ffffff'), 0.35);
     this.stripes = new InstancedMesh(
@@ -243,6 +297,7 @@ export class MobileView {
 
   setEffects(on: boolean): void {
     this.fx = on;
+    this.burstHolder.visible = on;
   }
 
   setScenery(on: boolean): void {
@@ -321,9 +376,35 @@ export class MobileView {
     this.m.setPosition(x, y, 0);
     this.boxes.setMatrixAt(this.boxCount, this.m);
     // A box cut short shows part of its face, never a squashed one.
-    const [u0, v0, uw, vh] = tileRect(tile, h / (BOX_H - BOX_SEAM), keepTop);
-    this.boxTiles.setXYZW(this.boxCount, u0, v0, uw, vh);
+    const r = tileRect(tile, h / (BOX_H - BOX_SEAM), keepTop, 4, this.rect);
+    this.boxTiles.setXYZW(this.boxCount, r[0], r[1], r[2], r[3]);
     this.boxCount++;
+  }
+
+  private pushBadge(x: number, y: number, size: number, tile: number): void {
+    if (this.badgeCount >= MAX_BADGES) return;
+    this.m.makeScale(size, size, 1);
+    this.m.setPosition(x, y, 0);
+    this.badges.setMatrixAt(this.badgeCount, this.m);
+    const r = badgeRect(tile, this.rect);
+    this.badgeRects.setXYZW(this.badgeCount, r[0], r[1], r[2], r[3]);
+    this.badgeCount++;
+  }
+
+  // ---------- score juice (effects only) ----------
+
+  /** Burst at the bird when obstacle points land; a second one for 3 points or more. */
+  onScore(game: Game, points: number): void {
+    if (!this.fx) return;
+    const x = game.cfg.birdX / BURST_SCALE;
+    const y = game.bird.y / BURST_SCALE;
+    this.burst.spawn(x, y);
+    if (points >= 3) this.burst.spawn(x, y);
+  }
+
+  /** Burst where the flower was picked up (at the bird). */
+  onFlower(game: Game): void {
+    if (this.fx) this.burst.spawn(game.cfg.birdX / BURST_SCALE, game.bird.y / BURST_SCALE);
   }
 
   /** Stack campaign boxes from the gap edge `from` towards `to` (either direction), clipped at `to`. */
@@ -417,7 +498,28 @@ export class MobileView {
         this.m.setPosition(x, fy, 0);
         this.flowers.setMatrixAt(flowers++, this.m);
       }
+
+      // Cue badge on a box next to the marked gap, until the obstacle is passed: on the side
+      // without the words, and for a fork's risky gap on the middle block.
+      const tile = this.kindTile.get(o.kind);
+      if (tile !== undefined && !o.scored) {
+        const risky = o.kind === 'fork' && o.gap2 > 0;
+        const gy = risky ? this.lerp(this.prevGap2Y[i], o.gap2Y, t, 0.2) : gapY;
+        const gh = risky ? o.gap2 : o.gap;
+        const above = risky ? gy < gapY : wordColumn(i) === 'lower';
+        this.pushBadge(x, above ? gy + gh / 2 + BOX_H / 2 : gy - gh / 2 - BOX_H / 2, BADGE_SIZE, tile);
+        if (risky) {
+          // Two sparkles at the lips the bird flies into (obstacles move towards +x).
+          this.pushBadge(x + half, gy + gh / 2, LIP_SPARKLE, SPARKLE_TILE);
+          this.pushBadge(x + half, gy - gh / 2, LIP_SPARKLE, SPARKLE_TILE);
+        }
+      }
     }
+    this.badges.count = this.badgeCount;
+    this.badges.instanceMatrix.needsUpdate = true;
+    this.badgeRects.needsUpdate = true;
+    this.badgeCount = 0;
+    this.burst.update(dt);
     this.boxes.count = this.boxCount;
     this.boxes.instanceMatrix.needsUpdate = true;
     this.boxTiles.needsUpdate = true;

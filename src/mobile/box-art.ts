@@ -27,13 +27,18 @@ const FAMILIES: readonly (readonly number[])[] = [
 
 export type Column = 'upper' | 'lower' | 'middle';
 
+/** The column whose boxes next to the gap carry the words: upper for even pool slots. */
+export function wordColumn(slot: number): 'upper' | 'lower' {
+  return slot % 2 === 0 ? 'upper' : 'lower';
+}
+
 /**
  * Face for the k-th box of a column (k = 0 at the gap). On one column per obstacle (upper for
  * even pool slots, lower for odd ones) the three boxes next to the gap read أنا / ادّعم / جود
  * from top to bottom. Every other box is decorative, alternating colour families.
  */
 export function boxTile(slot: number, k: number, column: Column): number {
-  const words = column === (slot % 2 === 0 ? 'upper' : 'lower');
+  const words = column === wordColumn(slot);
   if (words && k < 3) return column === 'upper' ? WORD_TILES[2 - k] : WORD_TILES[k];
   const fam = FAMILIES[(slot + k + (column === 'lower' ? 1 : 0)) % FAMILIES.length];
   return fam[(slot * 5 + k * 3) % fam.length];
@@ -42,9 +47,16 @@ export function boxTile(slot: number, k: number, column: Column): number {
 /**
  * UV rectangle [u0, v0, width, height] of a tile, for a box showing `frac` (0–1] of its face.
  * `keepTop`: a box clipped at its lower edge keeps the top of its face, else the bottom.
- * Inset by `insetPx` atlas pixels so mipmaps never pick up a neighbour tile.
+ * Inset by `insetPx` atlas pixels so mipmaps never pick up a neighbour tile. Writes into `out`
+ * (no allocation per frame).
  */
-export function tileRect(tile: number, frac: number, keepTop: boolean, insetPx = 4): [number, number, number, number] {
+export function tileRect(
+  tile: number,
+  frac: number,
+  keepTop: boolean,
+  insetPx = 4,
+  out: [number, number, number, number] = [0, 0, 0, 0],
+): [number, number, number, number] {
   const col = tile % ATLAS_COLS;
   const row = Math.floor(tile / ATLAS_COLS);
   const iu = insetPx / (TILE_W * ATLAS_COLS);
@@ -55,7 +67,11 @@ export function tileRect(tile: number, frac: number, keepTop: boolean, insetPx =
   const v0 = 1 - (row + 1) / ATLAS_ROWS + iv;
   const vh = 1 / ATLAS_ROWS - 2 * iv;
   const f = Math.min(1, Math.max(0, frac));
-  return [u0, keepTop ? v0 + (1 - f) * vh : v0, uw, f * vh];
+  out[0] = u0;
+  out[1] = keepTop ? v0 + (1 - f) * vh : v0;
+  out[2] = uw;
+  out[3] = f * vh;
+  return out;
 }
 
 // ---------- drawing (browser only) ----------

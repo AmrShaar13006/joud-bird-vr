@@ -12,7 +12,52 @@ import {
   NEAR_TILE_M,
 } from './backdrop';
 
-import { ATLAS_COLS, ATLAS_ROWS, boxTile, tileRect, WORD_TILES } from './box-art';
+import { KINDS } from '../core/ruleset';
+import { ATLAS_COLS, ATLAS_ROWS, boxTile, tileRect, WORD_TILES, wordColumn } from './box-art';
+import { BADGE_COLS, BADGE_ROWS, badgeKey, badgeLabel, badgeRect, cueFor, SPARKLE_TILE } from './cues';
+
+describe('obstacle cues', () => {
+  const pts = MOBILE1.points;
+
+  it('badges show exactly what the ruleset pays; plain gates get none', () => {
+    expect(cueFor({ kind: 'gate' }, pts)).toBeNull();
+    for (const kind of KINDS) {
+      const c = cueFor({ kind }, pts);
+      if (kind === 'gate') continue;
+      expect(c).not.toBeNull();
+      const expected = kind === 'fork' ? pts.forkRisky : pts[kind];
+      expect(c!.value).toBe(expected);
+      expect(badgeLabel(c!)).toBe(`+${expected}`);
+      expect(c!.risky).toBe(kind === 'fork');
+      expect(c!.moving).toBe(kind === 'moving');
+    }
+  });
+
+  it('look-alike badges share a tile; the sparkle tile is the last', () => {
+    const key = (k: (typeof KINDS)[number]) => badgeKey(cueFor({ kind: k }, pts)!);
+    expect(key('stairs')).toBe(key('updraft')); // both +2
+    expect(key('narrow')).not.toBe(key('moving')); // +3 vs +3 ↕
+    expect(key('fork')).not.toBe(key('narrow'));
+    const distinct = new Set(['stairs', 'updraft', 'narrow', 'moving', 'fork'].map((k) => key(k as never)));
+    expect(distinct.size).toBeLessThan(SPARKLE_TILE + 1);
+    expect(SPARKLE_TILE).toBe(BADGE_COLS * BADGE_ROWS - 1);
+    for (let t = 0; t <= SPARKLE_TILE; t++) {
+      const [u0, v0, uw, vh] = badgeRect(t);
+      expect(u0).toBeGreaterThanOrEqual(0);
+      expect(v0).toBeGreaterThanOrEqual(0);
+      expect(u0 + uw).toBeLessThanOrEqual(1);
+      expect(v0 + vh).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('badges never cover the words: they go on the other column', () => {
+    for (let slot = 0; slot < 6; slot++) {
+      const words = wordColumn(slot);
+      const k0 = boxTile(slot, 0, words === 'upper' ? 'lower' : 'upper');
+      expect(new Set<number>(WORD_TILES).has(k0)).toBe(false);
+    }
+  });
+});
 
 const lane = MOBILE1.modes.normal;
 
