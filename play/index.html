@@ -36,6 +36,10 @@
         </label>
         <p id="home-best" class="best"></p>
         <button id="play-btn" class="primary" type="button"></button>
+        <div class="row">
+          <button id="board-btn" class="ghost" type="button" hidden></button>
+          <button id="name-btn" class="ghost" type="button" hidden></button>
+        </div>
         <button id="mute-btn" class="ghost" type="button"></button>
       </section>
 
@@ -53,8 +57,28 @@
           <div><dt id="over-flowers-label"></dt><dd id="over-flowers"></dd></div>
           <div class="impact"><dt id="over-impact-label"></dt><dd id="over-impact"></dd></div>
         </dl>
+        <p id="over-status" class="status" hidden></p>
         <button id="again-btn" class="primary" type="button"></button>
-        <button id="over-home-btn" class="ghost" type="button"></button>
+        <div class="row">
+          <button id="over-board-btn" class="ghost" type="button" hidden></button>
+          <button id="over-home-btn" class="ghost" type="button"></button>
+        </div>
+      </section>
+
+      <section id="board" class="screen" hidden>
+        <h2 id="board-title"></h2>
+        <p id="board-mode" class="label"></p>
+        <ol id="board-list" class="board"></ol>
+        <p id="board-me" class="best"></p>
+        <p id="board-total" class="tag"></p>
+        <button id="board-back-btn" class="primary" type="button"></button>
+      </section>
+
+      <section id="names" class="screen" hidden>
+        <h2 id="names-title"></h2>
+        <p id="names-hint" class="sub"></p>
+        <div id="names-grid" class="names"></div>
+        <button id="names-back-btn" class="ghost" type="button"></button>
       </section>
 
       <section id="rotate" class="screen" hidden>

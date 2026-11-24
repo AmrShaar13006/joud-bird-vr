@@ -95,6 +95,41 @@ tests, fake database, no network). Every playable `mobile-1` fixture verifies th
 - The leaderboard showed «وردة 97»; `get_my_best` and `get_impact_total` were correct.
 - Both functions answer 401 without a player token and 405 to GET.
 
+## Phone side (`play/`, PR 7)
+- **`src/mobile/net.ts`** is the only file that talks to the server.
+  - It holds supabase-js 2.119.2 and loads lazily, after the first frame.
+  - First load is unchanged at 199.7 kB gzip. The lazy server chunk is 58.9 kB, 259.3 kB in total.
+  - `npm run check:mobile` proves supabase-js is not in the first load, and that `index.html` and
+    `fallback.html` never load it.
+- **Without config:** builds made without `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`
+  drop the server code, and every round is practice.
+- **Sign-in:** anonymous, on page load, kept by the SDK in localStorage (`joudbird.auth`).
+- **Ticket pool** (`src/mobile/online.ts`, unit-tested):
+  - Keeps one ticket ready per mode, so «العب» never waits on the network.
+  - Refetches it on mode change, after each round and when the tab comes back.
+  - Hands out a ticket only while a full 15-minute round still fits before it expires.
+- **No ticket** (offline, signed out, rate-limited, anonymous sign-ins off): the round is practice,
+  labelled «بدون اتصال: جولة تدريب». Never a ranked round on a phone-made seed.
+- **Outbox:** at game over the run goes through the outbox.
+  - The phone shows «جارٍ التحقق…», then «تم التحقق من النتيجة ✓» or «لم تُحتسب الجولة».
+  - Offline, it shows «سنرسل نتيجتك عند الاتصال».
+  - Queued runs (at most 5) are retried on load, when back online and when the tab returns, until
+    their ticket expires. Identical retries are safe: `submit-run` answers with the stored result.
+- **Nickname:**
+  - The first ranked round asks for one of 24 fixed nicknames (`strings.ts`, same order as
+    `public.nicknames`).
+  - It can be changed from home («اسمك: …»).
+  - If it can't be saved, the round starts anyway.
+- **Leaderboard («المتصدرون»):** reached from home and game over.
+  - Top 20 for the current mode, your rank and best, and «مجموع نقاط الأثر».
+  - Cached for 60 s. Names are inserted as text, never HTML.
+- **Autoplay** (`?debug=1&autoplay=1`) plays practice, except in a build made with `VITE_STAGING=1`.
+- **E2E** (`tests/online.spec.ts`, manual, staging only):
+  1. Build with `VITE_STAGING=1` and the staging `VITE_SUPABASE_*` values.
+  2. Run `E2E_ONLINE=1 npx playwright test tests/online.spec.ts --project=chromium`.
+
+  The autopilot plays one ranked round, and the server's verified score must equal the phone's.
+
 ## Deploying
 - **Migrations:** they live in `supabase/migrations/` and are applied in filename order. Apply
   them with the Supabase connector (`apply_migration`), or with the Supabase CLI if Amr approves

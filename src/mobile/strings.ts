@@ -39,4 +39,27 @@ export const M = {
 
   soundOn: 'الصوت: يعمل',
   soundOff: 'الصوت: مكتوم',
+
+  // Ranked play (step 2: verified by the server).
+  offlinePractice: 'بدون اتصال: جولة تدريب',
+  verifying: 'جارٍ التحقق…',
+  verified: 'تم التحقق من النتيجة ✓',
+  rejected: 'لم تُحتسب الجولة',
+  queued: 'سنرسل نتيجتك عند الاتصال',
+  leaderboard: 'المتصدرون',
+  impactTotal: 'مجموع نقاط الأثر',
+  myRank: (rank: number, score: number) => `ترتيبك: ${rank} · أفضل نتيجة: ${score}`,
+  boardEmpty: 'لا توجد نتائج بعد',
+  boardOffline: 'تحتاج اتصالًا لعرض المتصدرين',
+  back: 'رجوع',
+  chooseName: 'اختر اسمك',
+  nameHint: 'يظهر اسمك ورقمه في قائمة المتصدرين',
+  myName: (name: string) => `اسمك: ${name}`,
+  /** Fixed list, ids 1–24 in this order (= public.nicknames in supabase/migrations). */
+  nicknames: [
+    'وردة', 'زهرة', 'ياسمينة', 'نرجسة', 'خزامى', 'بنفسجة',
+    'سوسنة', 'أقحوانة', 'نخلة', 'غيمة', 'نجمة', 'هلال',
+    'بذرة', 'ثمرة', 'غصن', 'ورقة', 'ندى', 'نسمة',
+    'قطرة', 'ريشة', 'جناح', 'عصفور', 'حمامة', 'بلبل',
+  ] as readonly string[],
 } as const;

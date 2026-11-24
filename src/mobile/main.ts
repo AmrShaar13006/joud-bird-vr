@@ -8,9 +8,12 @@ import { Game } from '../core/game';
 import { type GameCommand, InputBus } from '../core/input';
 import { impactPoints } from '../core/ruleset';
 import { Sfx } from '../scene/audio';
+import type { Net } from './net';
+import { Outbox, RetryLater, Tickets, type Transport } from './online';
 import { getRunSpec, type MobileRunSpec, RULESET, recordRun } from './run-spec';
 import { chooseTier, FrameWatchdog, lowerTier, parseTier, type Tier, TIER_SETTINGS } from './perf';
-import { MobileUi } from './ui';
+import { M } from './strings';
+import { type BoardView, MobileUi, type Overlay, type OverStatus } from './ui';
 import { MobileView } from './view';
 
 // ---------- settings ----------
@@ -55,6 +58,81 @@ const bus = new InputBus();
 if (url.flags.debug) (window as unknown as { __joudGame?: Game }).__joudGame = game;
 const sfx = new Sfx(url.flags.mute || store.get('muted') === '1');
 
+// ---------- ranked play: server tickets and verified runs (step 2, docs/server.md) ----------
+// Without VITE_SUPABASE_URL / _PUBLISHABLE_KEY (or without a ticket) every round is practice.
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+const online = !!(SUPABASE_URL && SUPABASE_KEY);
+let netLoading: Promise<Net | null> | null = null;
+/** net.ts (and supabase-js) load on first use, never before the first frame. */
+function getNet(): Promise<Net | null> {
+  if (!online) return Promise.resolve(null);
+  netLoading ??= import('./net').then((m) => m.createNet(SUPABASE_URL!, SUPABASE_KEY!)).catch(() => null);
+  return netLoading;
+}
+const transport: Transport = {
+  async issue(m) {
+    const n = await getNet();
+    if (!n) throw new RetryLater('no server');
+    return n.issue(m);
+  },
+  async submit(r) {
+    const n = await getNet();
+    if (!n) throw new RetryLater('no server');
+    return n.submit(r);
+  },
+};
+const tickets = new Tickets(transport, RULESET.id);
+const outbox = new Outbox(transport, { get: () => store.get('outbox'), set: (v) => store.set('outbox', v) });
+let overStatus: OverStatus = null;
+let overlay: Overlay = null;
+/** Signed in to the server: ranked play, the leaderboard and nicknames are available. */
+let signedIn = false;
+let nicknameId: number | null = null;
+let nicknameTag: number | null = null;
+/** «العب» was pressed before a nickname was picked: start once one is. */
+let pendingStart = false;
+const boardCache = new Map<Mode, { at: number; view: BoardView }>();
+
+/** Sign in, learn the nickname, keep a ticket ready and send queued runs. */
+function warmUp(): void {
+  void getNet().then(async (n) => {
+    if (!n || !(await n.signIn())) return;
+    signedIn = true;
+    const p = await n.profile();
+    if (p) {
+      nicknameId = p.nicknameId;
+      nicknameTag = p.tag;
+    }
+    if (!practice) void tickets.prefetch(mode);
+    void outbox.flush();
+  });
+}
+
+async function openBoard(): Promise<void> {
+  overlay = 'board';
+  sfx.click();
+  const cached = boardCache.get(mode);
+  if (cached && performance.now() - cached.at < 60_000) return ui.showBoard(mode, cached.view);
+  ui.showBoard(mode, { rows: [], me: null, total: null, offline: !navigator.onLine });
+  const n = await getNet();
+  if (!n) return;
+  const forMode = mode;
+  const [rows, me, total] = await Promise.all([
+    n.leaderboard(forMode, RULESET.id),
+    n.myBest(forMode, RULESET.id),
+    n.impactTotal(),
+  ]);
+  const view: BoardView = { rows, me, total, offline: rows.length === 0 && total === null };
+  if (total !== null) boardCache.set(forMode, { at: performance.now(), view });
+  if (overlay === 'board' && mode === forMode) ui.showBoard(forMode, view);
+}
+
+/** Ranked play needs a nickname first (shown on the leaderboard). */
+function needsName(): boolean {
+  return signedIn && !practice && nicknameId === null;
+}
+
 // ---------- view ----------
 const ui = new MobileUi(
   {
@@ -65,12 +143,22 @@ const ui = new MobileUi(
       game.configure(RULESET.modes[m], m, loadBest(m));
       view.setConfig(game.cfg);
       sfx.click();
+      if (!practice) void tickets.prefetch(m);
     },
     onPractice(on) {
       practice = on;
       store.set('practice', on ? '1' : '0');
+      if (!on) void tickets.prefetch(mode);
     },
-    onPlay: () => bus.push('start'),
+    onPlay() {
+      if (needsName()) {
+        pendingStart = true;
+        overlay = 'names';
+        ui.showNames(null);
+        return;
+      }
+      bus.push('start');
+    },
     onPause: () => bus.push('pause'),
     onResume: () => bus.push('pause'),
     onAgain: () => bus.push('restart'),
@@ -80,6 +168,34 @@ const ui = new MobileUi(
     },
     onMute() {
       store.set('muted', sfx.toggleMute() ? '1' : '0');
+    },
+    onBoard: () => void openBoard(),
+    onNames() {
+      overlay = 'names';
+      ui.showNames(nicknameId);
+      sfx.click();
+    },
+    onBack() {
+      overlay = null;
+      pendingStart = false;
+      sfx.click();
+    },
+    onPickName(id) {
+      sfx.click();
+      void getNet().then(async (n) => {
+        const saved = !!n && (await n.setNickname(id));
+        if (saved) {
+          nicknameId = id;
+          nicknameTag = (await n!.profile())?.tag ?? nicknameTag;
+          boardCache.clear();
+        }
+        // Saved or not (offline), never leave the player stuck: start the round anyway.
+        overlay = null;
+        if (pendingStart) {
+          pendingStart = false;
+          bus.push(game.state === 'gameOver' ? 'restart' : 'start');
+        }
+      });
     },
   },
   (m) => RULESET.multipliers[m],
@@ -155,8 +271,11 @@ let roundPractice = practice;
 function handle(cmd: GameCommand): void {
   if (startsRound(cmd)) {
     // One place decides a round's seed: getRunSpec (server-issued in step 2).
-    spec = getRunSpec(mode, practice);
+    // Ranked rounds use the ticket kept ready for this mode; without one the round is practice.
+    spec = getRunSpec(mode, practice, practice ? null : tickets.take(mode));
     roundPractice = spec.practice;
+    overStatus = null;
+    if (!practice) void tickets.prefetch(mode);
     game.setSeed(spec.seed);
     game.best = roundPractice ? Number.MAX_SAFE_INTEGER : loadBest(mode);
   }
@@ -208,7 +327,8 @@ document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: fal
 const autoplay = url.flags.debug && new URLSearchParams(window.location.search).get('autoplay') === '1';
 let botWantsFlap: ((g: Game) => boolean) | null = null;
 if (autoplay) {
-  practice = true;
+  // Bots play practice, except on a staging build (VITE_STAGING=1) for the E2E test.
+  if (import.meta.env.VITE_STAGING !== '1') practice = true;
   void import('../core/bot').then((m) => {
     botWantsFlap = (g) => m.botWantsFlap(g);
   });
@@ -228,7 +348,13 @@ function autopilotTick(): void {
 // ---------- lifecycle ----------
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) game.suspend();
+  else if (online) {
+    if (!practice) void tickets.prefetch(mode);
+    void outbox.flush();
+  }
 });
+window.addEventListener('online', warmUp);
+if (online) window.addEventListener('load', warmUp);
 window.addEventListener('blur', () => game.suspend());
 window.addEventListener('pagehide', () => game.suspend());
 
@@ -293,6 +419,26 @@ function frame(now: number): void {
         if (game.state === 'ready') view.resetInterpolation(game);
         if (game.state === 'gameOver' && game.lastRun && game.lastResult) {
           recordRun({ ...spec, practice: roundPractice }, game.lastRun, game.lastResult, url.flags.debug);
+          if (!roundPractice && spec.ticketId && spec.ticketExpiresAt) {
+            // The server replays the flaps; its verdict is the score that counts.
+            const ticketId = spec.ticketId;
+            overStatus = 'verifying';
+            void outbox
+              .add({
+                ticketId,
+                mode: spec.mode,
+                flaps: game.lastRun.flaps,
+                endTick: game.lastRun.endTick,
+                clientScore: game.lastResult.score,
+                expiresAt: spec.ticketExpiresAt,
+              })
+              .then((v) => {
+                if (spec.ticketId !== ticketId) return; // a new round has started
+                overStatus = v === 'queued' ? 'queued' : v.valid ? 'verified' : 'rejected';
+                if (v !== 'queued') boardCache.delete(spec.mode);
+                if (url.flags.debug) console.log('[joud] verdict', v);
+              });
+          }
           if (!roundPractice && game.newBest) store.set(bestKey(mode), String(game.best));
         }
         break;
@@ -313,6 +459,11 @@ function frame(now: number): void {
     multiplier: (m) => RULESET.multipliers[m],
     impact: game.lastResult ? game.lastResult.impact : impactPoints(game.score, mode, RULESET),
     landscape,
+    online: signedIn,
+    offlineRound: game.state !== 'attract' && !!spec.offline,
+    status: overStatus,
+    overlay,
+    nickname: nicknameId ? (M.nicknames[nicknameId - 1] + ' ' + (nicknameTag ?? '')).trim() : null,
   });
 
   if (url.flags.debug) {
