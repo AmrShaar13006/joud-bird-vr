@@ -27,6 +27,17 @@ import type { Config } from '../core/config';
 import type { Game } from '../core/game';
 import { Bird } from '../scene/bird';
 import { BRAND, buildFlowerStrip } from '../scene/scenery';
+import {
+  buildFacade,
+  buildPlazaRow,
+  FAR_PARALLAX,
+  FAR_TILE_M,
+  FAR_METRE,
+  layerOffset,
+  NEAR_METRE,
+  NEAR_PARALLAX,
+  NEAR_TILE_M,
+} from './backdrop';
 
 export interface ViewOptions {
   /** Load joud.glb (false: the code-built placeholder bird). */
@@ -104,6 +115,10 @@ export class MobileView {
   private cfg: Readonly<Config>;
   private fx: boolean;
   private strip: Mesh | null = null;
+  private readonly facade: Mesh;
+  private readonly plaza: Mesh;
+  /** Backdrop scroll distance (lane units); render-only. */
+  private scroll = 0;
   private glbWanted: boolean;
 
   // Interpolation: state before the last fixed step.
@@ -124,6 +139,17 @@ export class MobileView {
     const sky = gradientPlane(8, cfg.laneH + 0.02, skyTop, skyBottom);
     sky.position.z = -2;
     s.add(sky);
+
+    // The event plaza (src/mobile/backdrop.ts): façade far back, booths and palms nearer.
+    const layerMat = new MeshBasicMaterial({ vertexColors: true });
+    this.facade = new Mesh(buildFacade(), layerMat);
+    this.facade.scale.set(FAR_METRE, FAR_METRE, 1);
+    this.facade.position.set(0, -cfg.laneH / 2, -1.9);
+    this.plaza = new Mesh(buildPlazaRow(), layerMat);
+    this.plaza.scale.set(NEAR_METRE, NEAR_METRE, 1);
+    this.plaza.position.set(0, -cfg.laneH / 2, -1.7);
+    this.plaza.visible = opts.scenery;
+    s.add(this.facade, this.plaza);
 
     const ground = new Mesh(new PlaneGeometry(8, 3), new MeshBasicMaterial({ color: BRAND.leafGreen }));
     ground.position.set(0, -cfg.laneH / 2 - 1.5, -1.5);
@@ -196,6 +222,7 @@ export class MobileView {
 
   setScenery(on: boolean): void {
     if (this.strip) this.strip.visible = on;
+    this.plaza.visible = on;
   }
 
   /** joud.glb (if loaded) or the code-built placeholder. Glasses and legs stay. */
@@ -301,6 +328,15 @@ export class MobileView {
     const y = this.lerp(this.prevBirdY, game.bird.y, t, 0.5) + (idle ? Math.sin(time * 3) * 0.012 : 0);
     this.bird.root.position.set(0, 0, 0);
     this.birdHolder.position.set(cfg.birdX, y, 0.5);
+
+    // Backdrop parallax: moves with the obstacles while playing, drifts on the home and ready
+    // screens, holds still when paused or over. Static with effects off.
+    if (this.fx) {
+      const v = game.state === 'playing' ? game.speed : idle ? 0.06 : 0;
+      this.scroll += v * dt;
+    }
+    this.facade.position.x = layerOffset(this.scroll, FAR_PARALLAX, FAR_TILE_M * FAR_METRE);
+    this.plaza.position.x = layerOffset(this.scroll, NEAR_PARALLAX, NEAR_TILE_M * NEAR_METRE);
 
     // Obstacles.
     this.boxCount = 0;
