@@ -46,3 +46,7 @@ pids/
 .cursor/mcp.json
 .vscode/mcp.json
 .codex/config.toml
+
+# Playwright output (npm run test:determinism)
+test-results/
+playwright-report/

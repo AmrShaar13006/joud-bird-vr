@@ -14,6 +14,9 @@
     "build": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:determinism": "node scripts/determinism/run.mjs",
+    "fixtures": "node scripts/run-ts.mjs scripts/gen-fixtures.ts && node scripts/build-sim.mjs",
+    "build:sim": "node scripts/build-sim.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,6 +30,7 @@
     "@iwsdk/cli": "1.1.0",
     "@iwsdk/reference": "1.1.0",
     "@iwsdk/vite-plugin-dev": "1.1.0",
+    "@playwright/test": "1.65.1",
     "@types/three": "^0.185.0",
     "typescript": "^5.5.0",
     "vite": "^7.1.4",

@@ -16,7 +16,10 @@ export default defineConfig({
     sourcemap: process.env.NODE_ENV !== 'production',
     target: 'esnext',
     // Two entries share one super-three chunk: the IWSDK game and the plain Three.js fallback.
-    rollupOptions: { input: { main: './index.html', fallback: './fallback.html' } },
+    // check/ replays the determinism fixtures in any browser (no Three.js).
+    rollupOptions: {
+      input: { main: './index.html', fallback: './fallback.html', check: './check/index.html' },
+    },
   },
   esbuild: { target: 'esnext' },
   // @drawcall/uikitml otherwise pulls a second three/@pmndrs/uikit graph

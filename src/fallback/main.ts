@@ -13,6 +13,7 @@ import { attachDesktopInput } from '../scene/desktop-input';
 import { createOverlay } from '../scene/overlay';
 import { PanelController } from '../scene/panels';
 import { PlayWindow } from '../scene/play-window';
+import { randomSeed } from '../scene/seed';
 import { loadBest, saveBest } from '../scene/storage';
 import { STRINGS } from '../scene/strings';
 
@@ -23,7 +24,12 @@ const BUTTON_PAUSE = 5;
 // ---------- core ----------
 const url = parseUrl(window.location.search);
 const cfg = configFor(url.mode, url.overrides); // mode via ?mode= only (no picker here)
-const game = new Game(cfg, { best: loadBest(url.mode), mode: url.mode });
+const game = new Game(cfg, {
+  best: loadBest(url.mode),
+  mode: url.mode,
+  seed: randomSeed(),
+  nextSeed: randomSeed,
+});
 const bus = new InputBus();
 const sfx = new Sfx(url.flags.mute);
 const handle = (cmd: GameCommand) => game.handle(cmd);

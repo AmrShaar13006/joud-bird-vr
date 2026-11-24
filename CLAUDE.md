@@ -42,7 +42,8 @@ Read before any task: `docs/spec.md` (what to build), `docs/plan.md` (deadlines)
   unless Amr tested it there.
 - Amr merges with merge commits (Vercel Hobby only deploys his commits). Do not squash or
   force-push `main`.
-- After the feature freeze (Sun 15 Nov 22:00): bug fixes only, on `fix/*` branches.
+- *(Historical: the VR event's feature freeze, Sun 15 Nov 22:00 – Wed 18 Nov, is over. New work
+  on `feat/*` branches is allowed again.)*
 
 ## Commands
 Node: `>=20.19 <21 || >=22.12 <23 || >=24` (see `engines`; `.nvmrc` pins 22.12.0).
@@ -57,8 +58,26 @@ Node: `>=20.19 <21 || >=22.12 <23 || >=24` (see `engines`; `.nvmrc` pins 22.12.0
 - `npm run typecheck` — `tsc --noEmit`. Run before testing in a browser: type errors can stop
   IWSDK systems from starting without any console error.
 - `npm run build` — production build to `dist/`: `index.html` (IWSDK game) and `fallback.html`
-  (plain Three.js fallback). `npm run preview` serves it. In dev the fallback is at
-  `https://localhost:8081/fallback.html`.
+  (plain Three.js fallback), plus `check/` (determinism check page). `npm run preview` serves it
+  (HTTPS, self-signed). In dev the fallback is at `https://localhost:8081/fallback.html`.
+- `npm run test:determinism` — fixtures in Node, the sim bundle in Node and Deno, `check/` in
+  Chromium and WebKit; prints a runtime × runs-passed table. Needs Deno and Playwright browsers.
+- `npm run build:sim` — rebuild `supabase/functions/_shared/joud-sim.js` after any `src/core`
+  change (a test fails when it is stale). `npm run fixtures` — only after a new ruleset id.
+
+## Mobile (play/)
+Joud's initiative runs until Mon 30 Nov 2026. Full details: `docs/mobile.md`.
+- **Target:** portrait phones in mobile Chrome and Safari. No WebXR, no IWSDK. The Quest rules
+  above (72 fps, draw calls, Quest Browser) apply to the VR pages; mobile keeps the same render
+  budget (< 50 draw calls, no shadows or post-processing, Lambert/Basic).
+- **Rulesets:** `vr-1` (VR, unchanged) and `mobile-1` (60 Hz). A run is (ruleset id, mode, seed,
+  flap ticks). The server will replay runs, so results must match in V8 and JavaScriptCore.
+- **Determinism rules** for `src/core` (enforced by `determinism-guard.test.ts`):
+  - Only `+ - * /`, `Math.min/max/abs/floor/ceil/round/trunc/sign/sqrt/imul` and bit ops.
+  - No trig, exp, log or pow, no `**`, no `Math.random`, `Date.now`, `new Date`,
+    `performance`, `crypto` or timers.
+  - Time is integer ticks. Seeds come from the shell.
+  - Never edit a ruleset in place: new id plus `npm run fixtures`.
 
 ## IWSDK notes
 Merged from the generator's `AGENTS.md` (still at the repo root as the full reference, with
