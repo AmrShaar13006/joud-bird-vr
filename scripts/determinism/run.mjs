@@ -3,11 +3,15 @@
 //   2. Node: the committed sim bundle replays every fixture
 //   3. Deno: the same bundle (what Supabase Edge Functions run)
 //   4. Chromium and WebKit (Playwright): the built check/ page
+//   5. Supabase Edge runtime: the deployed sim-selftest replays every fixture. Needs
+//      SUPABASE_STAGING_URL and SUPABASE_STAGING_ANON_KEY (e.g. in an untracked .env.staging);
+//      skipped without them.
 // Prints one table, runtime × runs passed. Exit code 1 if anything failed.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { edgeSelftest } from './edge-selftest.mjs';
 
 const TMP = resolve('.tmp/determinism');
 const rows = [];
@@ -105,6 +109,24 @@ if (!existsSync(resolve('node_modules/@playwright/test/package.json'))) {
       const engine = (r.userAgent.match(/(Chrome|Version)\/[\d.]+/) || [''])[0];
       row(`${project} ${engine}`.trim(), r.ok ? r.passed : Math.min(r.passed, r.total - 1), r.total, `check/ page, ${r.ms} ms`);
     }
+  }
+}
+
+// 5. Supabase Edge runtime (staging).
+if (existsSync(resolve('.env.staging'))) process.loadEnvFile(resolve('.env.staging'));
+const edgeUrl = process.env.SUPABASE_STAGING_URL;
+const edgeKey = process.env.SUPABASE_STAGING_ANON_KEY;
+if (!edgeUrl || !edgeKey) {
+  rows.push({ runtime: 'Supabase Edge (staging)', result: '-', status: 'SKIPPED', note: 'no SUPABASE_STAGING_URL / _ANON_KEY' });
+} else {
+  console.log('\n$ POST fixtures to sim-selftest (staging)');
+  try {
+    const r = await edgeSelftest(edgeUrl, edgeKey);
+    for (const l of r.failures) console.log(l);
+    const name = (r.runtime.match(/supabase-edge-runtime-[\d.]+/) || ['Supabase Edge'])[0];
+    row(name, r.ok ? r.passed : Math.min(r.passed, r.total - 1), r.total, 'sim-selftest on staging');
+  } catch (e) {
+    row('Supabase Edge (staging)', 0, 1, String(e?.message ?? e).slice(0, 60));
   }
 }
 
