@@ -34,8 +34,8 @@ export interface ViewOptions {
   glbUrl: string;
   /** Decorative effects (flower spin, updraft motion). */
   fx: boolean;
-  /** Scenery density 0..1 (flower strip). */
-  scenery: number;
+  /** Flower strip under the lane. */
+  scenery: boolean;
 }
 
 const BOX_H = 0.06;
@@ -102,7 +102,9 @@ export class MobileView {
   private readonly m = new Matrix4();
   private readonly tmpScale = new Vector3();
   private cfg: Readonly<Config>;
-  private readonly fx: boolean;
+  private fx: boolean;
+  private strip: Mesh | null = null;
+  private glbWanted: boolean;
 
   // Interpolation: state before the last fixed step.
   private prevBirdY = 0;
@@ -127,12 +129,14 @@ export class MobileView {
     ground.position.set(0, -cfg.laneH / 2 - 1.5, -1.5);
     s.add(ground);
 
-    if (opts.scenery > 0) {
+    {
       // The VR strip is 0.3 tall at its own scale; here it fills the ground margin.
       const strip = new Mesh(buildFlowerStrip(2.4 / 0.45, 0.3), new MeshBasicMaterial({ vertexColors: true }));
       const k = (GROUND_MARGIN * 0.8) / 0.3;
       strip.scale.set(0.45 * k * 0.5, k * 0.5, 0.01);
       strip.position.set(0, -cfg.laneH / 2 - GROUND_MARGIN * 0.75, -1);
+      strip.visible = opts.scenery;
+      this.strip = strip;
       s.add(strip);
     }
 
@@ -178,9 +182,31 @@ export class MobileView {
     this.birdHolder.position.z = 0.5;
     s.add(this.birdHolder);
     this.setConfig(cfg);
-    if (opts.model) void this.bird.load(opts.glbUrl);
+    this.glbWanted = opts.model;
+    if (opts.model) void this.bird.load(opts.glbUrl).then(() => this.setBirdDetail(this.glbWanted));
 
     this.camera.position.set(0, 0, 10);
+  }
+
+  // ---------- render tiers (src/mobile/perf.ts): rendering only, never the sim ----------
+
+  setEffects(on: boolean): void {
+    this.fx = on;
+  }
+
+  setScenery(on: boolean): void {
+    if (this.strip) this.strip.visible = on;
+  }
+
+  /** joud.glb (if loaded) or the code-built placeholder. Glasses and legs stay. */
+  setBirdDetail(glb: boolean): void {
+    this.glbWanted = glb;
+    if (this.bird.status !== 'joud') return;
+    const model = this.bird.root.children[0];
+    for (const child of model.children) {
+      if (child.name === 'BirdGlassesLegs') continue;
+      child.visible = child.name === 'BirdPlaceholder' ? !glb : glb;
+    }
   }
 
   setConfig(cfg: Readonly<Config>): void {

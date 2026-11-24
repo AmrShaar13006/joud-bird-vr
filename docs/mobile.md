@@ -39,6 +39,29 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
 - **Offline:** `public/play/sw.js` caches what the first load fetched, so the game works offline
   afterwards. It makes no network calls of its own.
 
+### Performance tiers (`src/mobile/perf.ts`)
+| tier | pixel-ratio cap | antialias | effects (flower spin, updraft motion) | flower strip | bird |
+|---|---|---|---|---|---|
+| low | 1 | off | off | hidden | placeholder (0.9k tris) |
+| medium | 1.5 | on | on | shown | joud.glb (6k tris) |
+| high | 2 | on | on | shown | joud.glb |
+
+- **Starting tier:** chosen from `hardwareConcurrency`, `deviceMemory` (absent on Safari, which
+  does not count against the device), screen size and DPR. See `chooseTier`.
+- **Watchdog:** during a round, if the average frame is over 20 ms for 3 s, the game drops one
+  tier. It never steps up. Antialias stays as created, because a WebGL context cannot change it.
+- **Override:** `?tier=low|medium|high` forces a tier and turns the watchdog off. The debug HUD
+  shows the tier.
+- **Rendering only:** tiers never touch the sim, so runs replay identically on every tier.
+- **Budget (same as VR):** under 50 draw calls (the page uses 6–7), no shadows, no
+  post-processing, Lambert/Basic materials.
+
+### Practice
+- Same ruleset, a fresh random seed every round.
+- Clearly labelled: a «جولة تدريب» badge during play, «جولة تدريب» as the game-over title, and
+  no impact points.
+- Never submitted, never logged as ranked, never counted as a best score.
+
 ## Rulesets (`src/core/ruleset.ts`)
 A `Ruleset` holds everything that affects a result: id, step, max ticks, the per-mode `Config`
 (lane size and tuning), the points table, the mode multipliers, the course weights and the
