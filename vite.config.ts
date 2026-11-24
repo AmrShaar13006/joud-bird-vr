@@ -36,7 +36,9 @@ function chunkModules(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [iwsdkDev(), chunkModules()],
+  // Only for `vite build`: registered in dev (even with apply: 'build') it stalls the
+  // IWSDK dev server before it prints its URL.
+  plugins: process.argv.includes('build') ? [iwsdkDev(), chunkModules()] : [iwsdkDev()],
   server: { host: '0.0.0.0', port: 8081, open: false },
   build: {
     outDir: 'dist',
