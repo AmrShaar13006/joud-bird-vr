@@ -32,8 +32,22 @@ export function createNet(url: string, key: string): Net {
     auth: { persistSession: true, autoRefreshToken: true, storageKey: 'joudbird.auth' },
   });
   let userId: string | null = null;
+  let signing: Promise<boolean> | null = null;
 
-  async function signIn(): Promise<boolean> {
+  /**
+   * Single-flight: the warm-up and the first ticket request run at the same time on page
+   * load. Two parallel signInAnonymously() calls would make two users, and a ticket issued
+   * to one would then be submitted by the other (badTicket). Everyone shares one sign-in.
+   */
+  function signIn(): Promise<boolean> {
+    signing ??= doSignIn().then((ok) => {
+      if (!ok) signing = null; // offline or refused: try again next time
+      return ok;
+    });
+    return signing;
+  }
+
+  async function doSignIn(): Promise<boolean> {
     try {
       const { data } = await sb.auth.getSession();
       if (data.session) {

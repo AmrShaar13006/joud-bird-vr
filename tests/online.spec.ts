@@ -8,8 +8,8 @@ import { expect, test } from '@playwright/test';
 // Skipped otherwise (npm run test:determinism never runs it).
 test.skip(process.env.E2E_ONLINE !== '1', 'set E2E_ONLINE=1 with a staging build (see the comment above)');
 
-test('a ranked round is verified by the server with the same score', async ({ page }) => {
-  test.setTimeout(120_000);
+test('ranked rounds are verified by the server with the same score', async ({ page }) => {
+  test.setTimeout(180_000);
   const runs: { score: number }[] = [];
   const verdicts: { valid: boolean; score?: number; reason?: string }[] = [];
   page.on('console', async (msg) => {
@@ -21,8 +21,15 @@ test('a ranked round is verified by the server with the same score', async ({ pa
       verdicts.push((await msg.args()[1].jsonValue()) as { valid: boolean; score?: number });
     }
   });
-  await page.goto('play/?debug=1&autoplay=1&tier=low&mode=easy');
-  await expect.poll(() => verdicts.length, { timeout: 100_000 }).toBeGreaterThan(0);
-  expect(verdicts[0].valid, `rejected: ${verdicts[0].reason}`).toBe(true);
-  expect(verdicts[0].score).toBe(runs[0].score);
+  // Normal mode: the autopilot usually scores 10–60 and dies within half a minute.
+  await page.goto('play/?debug=1&autoplay=1&tier=low&mode=normal');
+  // Play until a verified round scored points ("0 = 0" proves little), or one is rejected.
+  await expect
+    .poll(() => verdicts.some((v) => !v.valid || (v.score ?? 0) > 0), { timeout: 160_000 })
+    .toBe(true);
+  expect(verdicts.length).toBeGreaterThan(0);
+  verdicts.forEach((v, i) => {
+    expect(v.valid, `round ${i + 1} rejected: ${v.reason}`).toBe(true);
+    expect(v.score, `round ${i + 1}: server vs phone`).toBe(runs[i].score);
+  });
 });
