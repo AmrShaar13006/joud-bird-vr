@@ -10,7 +10,7 @@ Options for trying other numbers (they change what is written, so build again wi
     --wing-scale=1.0                    the wing at the poster's full length (built 10 % shorter)
     --fold=elev=-60,twist=-10           other numbers for the folded pose (joud_clips.FOLD)
     --tune-fold                         search for a folded pose and print it
-    --shade=fan.top=22:-40,wing.weight=0.7   other painted shading directions for the wing (SHADE)
+    --shade=primary.under=40:10,wing.weight=0.7   other painted shading directions for the wing (SHADE)
 
 Writes
     public/models/joud-v2.glb    one skinned mesh, one material, 1024 webp atlas, armature,
@@ -573,8 +573,9 @@ def build_collar(m: dict, coll) -> bpy.types.Object:
 # the left and on the right - then widens the chord 2.1x at the root to 1.35x at the tip and
 # thins it to 0.7x. proto_section() gives that section's chord, thickness and incidence. On top
 # of it this build adds a slight camber (curved top, flat underside), a root narrow enough for
-# the vest's armhole, a rounded end, a row of rounded secondary feathers along the trailing edge
-# and a soft fan of tip feathers that a bone of its own (wing_fan) closes and spreads.
+# the vest's armhole, a thickness that tapers from a rounded leading edge and towards the tip, a
+# row of short scallops along the trailing edge and, at the end, a fringe of long primaries that
+# a bone of its own (wing_fan) closes and spreads.
 # Wing space: +X along the wing from the shoulder joint, +Y back (the trailing edge), +Z up.
 # The right wing is the left one mirrored in X only, so both leading edges face -Y.
 
@@ -587,17 +588,33 @@ WING_SHOULDER_X = 0.40           # inside the body: the root is hidden under the
 # joints further). `--wing-scale=1.0` builds the full length for comparison.
 WING_SCALE = float(next((a.split('=')[1] for a in ARGS if a.startswith('--wing-scale=')), 0.9))
 WING_LEN = 1.00                  # the cream part's end, from the shoulder joint (before WING_SCALE)
-FAN_PIVOT = 0.84                 # the rounded end starts here; the tip fan turns about this point
+FAN_PIVOT = 0.84                 # the rounded end starts here; the primaries' bone (wing_fan) turns about this point
 WING_BONES = [0.0, 0.42, 0.84, 1.30]   # shoulder, mid, tip joints along the wing (+ tip end)
 ROLL_DEG, CHORD_ROOT, CHORD_TIP, THIN = 65.0, 2.1, 1.35, 0.7   # flap_proto.py, reshape_wings()
-CAMBER = 0.06                    # height of the mean line at mid chord, as a part of the chord
+CAMBER = 0.10                    # height of the mean line at mid chord, as a part of the chord
 BLADE = 0.70                     # the cream blade covers this much of the chord, from the leading edge;
                                  # the secondaries make up the rest
-SEC_COUNT = 7                    # secondary feathers along the trailing edge
-FAN_DEG = [-34, -20.4, -6.8, 6.8, 20.4, 34]    # tip feathers, from the leading side to the trailing
-FAN_VISIBLE = [0.24, 0.28, 0.30, 0.30, 0.28, 0.24]  # how far each reaches past the cream end
-FEATHER_ROUND = [(0.0, 0.50), (0.30, 0.82), (0.58, 1.0), (0.80, 0.92), (0.93, 0.66), (0.985, 0.34)]  # (along, width)
+# Amr, 28 Nov: edge-on the wing must read as a curved wing, not a line. So the section is a
+# teardrop: thickest behind a rounded leading edge, thinning to the trailing edge and to the tip.
+THICK_TOP, THICK_BOTTOM = 2.2, 1.2   # the top's and the underside's height, in prototype half-thicknesses
+THICK_TIP = 0.75                 # the thickness left at the blade's end, as a part of the root's
+TEARDROP = (1.32, 1.0)           # thickness factor at the leading edge, and how much of it is lost by the trailing edge
+SEC_COUNT = 7                    # short scallops (secondary feathers) along the trailing edge
+SEC_SPAN = (0.17, 0.70)          # the stations of the first and the last
+# Amr, 28 Nov: no separate peach fan (it read as a hand). The wing itself ends in a fringe, as on
+# the poster: five long rounded primaries that carry on the wing's cream surface, peach only as a
+# brushed band on their last third. They are rooted in a row across the chord under the blade's
+# end and turn with the wing_fan bone, which closes and spreads them.
+PRIM_ROOT = 0.78                 # the station of the row they are rooted in
+PRIM_ACROSS = [-0.78, -0.40, -0.02, 0.36, 0.74]   # where across the chord, in half chords from its middle (- = leading)
+PRIM_LEAN = [-6.0, -1.0, 6.0, 14.0, 23.0]         # degrees from the wing's length towards the trailing edge
+PRIM_LEN = [0.40, 0.47, 0.50, 0.47, 0.40]
+PRIM_HALF_WIDTH = 0.065
+PRIM_ROLL = -1.5                 # each primary rolled a little, so they overlap like slats
+PRIM_ROUND = [(0.0, 0.86), (0.45, 1.0), (0.74, 0.97), (0.89, 0.74), (0.965, 0.44), (0.995, 0.18)]  # (along, width)
 SEC_ROUND = [(0.0, 0.60), (0.45, 0.96), (0.75, 1.0), (0.93, 0.62)]
+PEACH_FROM = {'primary': 0.66, 'wingfeather': 0.66}  # where along a feather the peach band starts
+WING_REACH = max(PRIM_ROOT + ln * math.cos(math.radians(d)) for ln, d in zip(PRIM_LEN, PRIM_LEAN))  # the tip's station
 RIGID_S: dict[str, list[float]] = {}  # object name -> per vertex, the station its feather is rooted at
 
 
@@ -631,9 +648,10 @@ def wing_section(s: float) -> dict:
     a_p, b_p, inc = proto_section(max(sp, 0.0))
     r = float(smoothstep(-0.06, 0.24, sp))  # the root is narrower (it enters the vest's armhole)
     a = 0.105 + (a_p - 0.105) * r
-    top = 0.050 + (1.28 * b_p - 0.050) * r    # curved top ...
-    bot = 0.050 + (0.72 * b_p - 0.050) * r    # ... flatter underside; top + bot = the prototype's thickness
     out = max(0.0, sp) / WING_LEN
+    thin = 1.0 + (THICK_TIP - 1.0) * min(1.0, max(0.0, sp) / FAN_PIVOT)
+    top = 0.050 + (THICK_TOP * b_p * thin - 0.050) * r      # curved top ...
+    bot = 0.050 + (THICK_BOTTOM * b_p * thin - 0.050) * r   # ... flatter underside
     y = 0.2 * a * r + 0.05 * out * out        # the bones run nearer the leading edge; tip swept back a little
     cover = 1.0 + (BLADE - 1.0) * float(smoothstep(0.02, 0.20, sp))  # the root is all blade
     sec = {
@@ -685,11 +703,16 @@ def feather_bm(origin: Vector, along: Vector, across: Vector, normal: Vector, le
 # The numbers come from a search over every clip's key poses as the game shows them (the bird
 # turned -55 degrees and tilted with its speed, the game's sky and sun) and from the front: the
 # light on each visible face, kept as high and as even as one direction per face allows.
+# 28 Nov: the top leans 20 degrees forwards, not 45. The game's frames look the same, and seen
+# from behind (the viewer's back views) the wing is light cream instead of grey.
 SHADE = {
-    'wing': {'top': (45.0, -15.0), 'under': (65.0, 10.0), 'under_tip': (85.0, 10.0), 'weight': 0.85},  # blade, secondaries
-    'fan': {'top': (30.0, -30.0), 'under': (60.0, 10.0), 'weight': 1.0},
+    'wing': {'top': (20.0, -15.0), 'under': (65.0, 10.0), 'under_tip': (85.0, 10.0), 'weight': 0.85},  # blade, scallops
+    # The primaries hang past both folding joints. On the flap's recovery "forwards" has turned
+    # outwards and down for them, and an underside painted like the blade's went olive for two
+    # frames; 50 degrees keeps them cream there and when the wing is raised.
+    'primary': {'top': (20.0, -15.0), 'under': (50.0, 10.0), 'weight': 0.85},
 }
-for _arg in ARGS:  # --shade=fan.top=22:-40,wing.weight=0.7 : try other numbers
+for _arg in ARGS:  # --shade=wing.top=40:-10,wing.weight=0.7 : try other numbers
     if _arg.startswith('--shade='):
         for _kv in _arg[8:].split(','):
             _key, _val = _kv.split('=')
@@ -699,18 +722,18 @@ for _arg in ARGS:  # --shade=fan.top=22:-40,wing.weight=0.7 : try other numbers
 
 def card_normals(obj: bpy.types.Object, side: int, shade: dict) -> None:
     """Paint the wing's shading normals so it reads as flat colour, as in the art: cream on both
-    faces, with the peach tip fan staying peach.
+    faces, with the fringe's peach band staying peach.
 
     The game lights Joud with a white sky over a green ground and one sun, and no fill. With
     true normals every underside turned dark olive, so a flap strobed cream and olive, and the
-    peach fan went brown whenever it was seen from below. So each face starts from a painted
+    peach tips went brown whenever they were seen from below. So each face starts from a painted
     direction (SHADE): the top from one that leans a little forwards, the underside from one
     that leans further forwards - not downwards. The camera and the sun are always in front of
     Joud, and "forwards" does not change when the wing is raised, lowered or folded, so the
     colour holds through a flap. The wing still moves with its bones and the normals turn with
     it, so a raised wing is a little darker underneath than a level one; it just starts from a
     kinder direction. Round the blade's edges the two directions blend. The price: seen from
-    behind, the wing is darker than the body."""
+    behind, the wing is a little paler and cooler than the body."""
     me = obj.data
 
     def painted(pair: tuple[float, float]) -> Vector:
@@ -760,7 +783,8 @@ def build_wing(side: int, coll) -> tuple[bpy.types.Object, bpy.types.Object, bpy
         for j in range(n):
             psi = 2 * math.pi * j / n  # 0 = the leading edge, then over the top to the trailing edge
             xi, zeta = math.cos(psi), math.sin(psi)
-            h = sec['camber'] * (1 - xi * xi) + (sec['top'] if zeta >= 0 else sec['bot']) * zeta
+            tear = TEARDROP[0] - TEARDROP[1] * (1 - xi) / 2   # thickest behind the leading edge, thin at the trailing
+            h = sec['camber'] * (1 - xi * xi) + (sec['top'] if zeta >= 0 else sec['bot']) * zeta * tear
             ring.append(centre - tr * (sec['blade_a'] * xi) + nrm * h)
         rings.append(ring)
     us = [(s + 0.1) / (WING_LEN + 0.1) for s in ss]
@@ -774,7 +798,7 @@ def build_wing(side: int, coll) -> tuple[bpy.types.Object, bpy.types.Object, bpy
     rigid: list[float] = []
     for i in range(SEC_COUNT):
         f = i / (SEC_COUNT - 1)
-        s0 = 0.17 + (0.78 - 0.17) * f
+        s0 = SEC_SPAN[0] + (SEC_SPAN[1] - SEC_SPAN[0]) * f
         sec = wing_section(s0)
         tr, nrm = section_axes(sec['inc'])
         lean = math.radians(4 + 34 * f * f)  # from straight back to leaning towards the tip
@@ -788,22 +812,22 @@ def build_wing(side: int, coll) -> tuple[bpy.types.Object, bpy.types.Object, bpy
     sec_obj = new_object(f'wing_sec_{name}', place(sb), 'wingfeather', coll)
     RIGID_S[sec_obj.name] = rigid
 
-    # --- the tip fan: soft, round, wide feathers round the cream end --------------------------------
+    # --- the fringe: long rounded primaries in a row across the chord, under the blade's end ------
     fb = bmesh.new()
-    sec = wing_section(FAN_PIVOT)
+    sec = wing_section(PRIM_ROOT)
     tr, nrm = section_axes(sec['inc'])
-    pivot = Vector((FAN_PIVOT, sec['blade_y'], sec['blade_z']))
-    for k, (deg, vis) in enumerate(zip(FAN_DEG, FAN_VISIBLE)):
+    mid = Vector((PRIM_ROOT, sec['y'], sec['z']))
+    for k, (at, deg, length) in enumerate(zip(PRIM_ACROSS, PRIM_LEAN, PRIM_LEN)):
         th = math.radians(deg)
         along = (Vector((1, 0, 0)) * math.cos(th) + tr * math.sin(th)).normalized()
         across = along.cross(nrm).normalized()
-        cap = 1 / math.sqrt((math.cos(th) / end) ** 2 + (math.sin(th) / sec['blade_a']) ** 2)  # the cream end's edge
-        start = pivot + along * (cap - 0.07) + nrm * ((2.5 - k) * 0.004)
-        merge_bm(fb, feather_bm(start, along, across, nrm, vis + 0.07, 0.080, 0.012, FEATHER_ROUND, 6, roll_deg=-8))
-    fan = new_object(f'wing_fan_{name}', place(fb), 'feather', coll)
+        # the leading ones lie on top, like shingles; all start below the blade's underside
+        start = mid + tr * (at * sec['a']) - nrm * (0.004 + k * 0.004)
+        merge_bm(fb, feather_bm(start, along, across, nrm, length, PRIM_HALF_WIDTH, 0.011, PRIM_ROUND, 6, roll_deg=PRIM_ROLL))
+    fan = new_object(f'wing_fan_{name}', place(fb), 'primary', coll)
     card_normals(wing, side, SHADE['wing'])
     card_normals(sec_obj, side, SHADE['wing'])
-    card_normals(fan, side, SHADE['fan'])
+    card_normals(fan, side, SHADE['primary'])
     return wing, sec_obj, fan
 
 
@@ -1128,7 +1152,7 @@ def add_socket(name: str, pos: Vector, arm: bpy.types.Object, bone_name: str, co
 # fold_report() measures the pose against the body on every build; `--tune-fold` searches for
 # better numbers and prints them (it does not change joud_clips.py).
 
-FOLD_FAN_TARGET = (0.66, -0.42)  # (x, z) of the tip fan's centre: beside the lower belly
+FOLD_FAN_TARGET = (0.66, -0.42)  # (x, z) of the primaries' centre: beside the lower belly
 
 
 def body_distance(pts: np.ndarray) -> np.ndarray:
@@ -1269,7 +1293,8 @@ def fold_report(arm, wing_objs: list[bpy.types.Object]) -> dict:
 # ----------------------------------------------------------------------------------------------
 
 TEXEL_WEIGHT = {  # relative texel density per part kind (the vest art gets the most)
-    'vest': 2.3, 'collar': 2.0, 'head': 1.5, 'body': 0.85, 'wing': 0.8, 'wingfeather': 0.7, 'feather': 1.9,
+    'vest': 2.3, 'collar': 2.0, 'head': 1.5, 'body': 0.85, 'wing': 0.8, 'wingfeather': 0.9, 'primary': 1.2,
+    'feather': 1.9,
     'lens': 0.1,
 }
 # Flat-coloured parts (legs, beak, eyes, glasses) are too small for islands of their own: every
@@ -1480,7 +1505,7 @@ def paint_atlas(objs: list[bpy.types.Object], m: dict, face: dict) -> tuple[np.n
     face_w = smoothstep(0.12, 0.42, facing)
 
     # body, head, wings: cream
-    for k in ('body', 'head', 'wing', 'wingfeather'):
+    for k in ('body', 'head', 'wing', 'wingfeather', 'primary'):
         out[kind == k] = cream
 
     # vest: the art where it shows the vest, flat vest colour elsewhere (back, sides)
@@ -1551,7 +1576,16 @@ def paint_atlas(objs: list[bpy.types.Object], m: dict, face: dict) -> tuple[np.n
     if any(v['faces'] != 'front' for v in green_edge.values()) or len(green_edge) != 2:
         raise RuntimeError(f'the green edge must lead on both wings: {green_edge}')
 
-    # feathers (wing tips, tail): peach with short dark strokes, as in the art
+    # the wing's fringe: cream feathers that end in a brushed peach band (the primaries' last
+    # third, the scallops' edge). The band's edge wanders with a streak along each feather.
+    streak = value_noise(np.stack([prm[..., 1].ravel() * 26.0, part.ravel() * 3.7, np.zeros(part.size)], axis=1).astype(np.float32), 1.0, 5).reshape(part.shape)
+    for k, start in PEACH_FROM.items():
+        sel = kind == k
+        band = smoothstep(start - 0.05, start + 0.07, u + 0.10 * (streak - 0.5)) * 0.94
+        band = np.where(sel, band, 0.0)[..., None]
+        out = out * (1 - band) + peach_tip * band
+
+    # the tail's feathers: peach with short dark strokes, as in the art
     sel = kind == 'feather'
     out[sel] = peach_tip
     vfa = prm[..., 1]
@@ -1872,7 +1906,7 @@ def main() -> None:
     bottom_z = (CY - PROFILE_PX[-1][0]) * S
     log(f'model: height {head_top_z - bottom_z:.3f} (head top {head_top_z:.3f}, body bottom {bottom_z:.3f}), '
         f'body half-width 0.600, head {(head_top_z - NECK_Z) / (head_top_z - bottom_z) * 100:.0f} % of the height '
-        f'(brief: 33 %), wing {(WING_LEN + max(FAN_VISIBLE)) * WING_SCALE:.2f} from the shoulder joint')
+        f'(brief: 33 %), wing {WING_REACH * WING_SCALE:.2f} from the shoulder joint')
 
     # --- parts -----------------------------------------------------------------------------------
     parts_coll = bpy.data.collections.new('Joud_parts')

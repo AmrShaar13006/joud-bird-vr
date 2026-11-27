@@ -83,8 +83,9 @@ def wing_pose(elev: float = 0.0, twist: float = 0.0, sweep: float = 0.0, back: f
     back      the wing swung back within its own plane at the shoulder
     *_fold    the outer wing folded back within the wing's plane (mid joint, tip joint)
     *_bend    the outer wing bent up (+) or down (-) across its plane: lag, curl
-    fan       the tip fan's spread: 1 as built, below 1 closed, above 1 spread
-    fan_bend  the tip fan bent up (+) or down (-)
+    fan       the spread of the primaries at the wing's end: 1 as built, below 1 closed, above 1 spread
+    fan_bend  the primaries bent up (+) or down (-). fan_twist stays 0 in every clip: turned out
+              of the wing's plane, the primaries read as a hand (tried 28 Nov)
     """
     return dict(elev=elev, twist=twist, sweep=sweep, back=back,
                 mid_fold=mid_fold, mid_bend=mid_bend, mid_twist=mid_twist,
@@ -121,13 +122,12 @@ def set_legs(p: Pose, upper: float, lower: float) -> None:
 
 
 # The wings at rest: down along the body's side, broad face out, wrapped a little round the
-# belly (36 degrees of curl, shared by the mid and tip joints), the tip fan closed and turned
-# to show its top to the front, as the art's "hands" do. (Turned the other way, -40 degrees,
-# the fan showed its underside to the camera, which the game's light leaves brown.) Set by
-# hand; build_joud.py measures it on every build (fold_report) and `--tune-fold` prints a
-# candidate from a search.
-FOLD = wing_pose(elev=-60.0, twist=-8.0, back=16.0, mid_bend=-22.0,
-                 tip_fold=6.0, tip_bend=-14.0, fan=0.75, fan_bend=4.0, fan_twist=90.0)
+# belly (36 degrees of curl, shared by the mid and tip joints), the primaries closed and lying
+# flat in the wing's own plane, so the fringe carries on down the side (Amr, 28 Nov: it must
+# not read as a ball at phone size). Set by hand; build_joud.py measures it on every build
+# (fold_report) and `--tune-fold` prints a candidate from a search.
+FOLD = wing_pose(elev=-57.0, twist=-8.0, back=16.0, mid_bend=-22.0,
+                 tip_fold=6.0, tip_bend=-14.0, fan=0.8, fan_bend=4.0)
 LEG_BACK = (38.0, 22.0)  # legs tucked back in flight (prototype)
 
 
@@ -141,14 +141,16 @@ def folded() -> Pose:
 # glide: wings open a little above level, a slow flutter at the tips, a 1 degree body sway
 # ----------------------------------------------------------------------------------------------
 
-GLIDE_ELEV = 12.0
+GLIDE_ELEV = 20.0             # Amr, 28 Nov: 20 degrees at the shoulder (it was 12)
+GLIDE_ARC = (-9.0, -9.0)      # mid and tip joints bent down: the wing is an arc, level at its end
+GLIDE_TWIST = 8.0             # the built wing sits about 8 degrees leading edge up; glide flattens it
 
 
 def glide_wing(t: float) -> dict:
     w = TAU * t
-    return wing_pose(elev=GLIDE_ELEV + 0.8 * math.sin(w),
-                     mid_bend=1.2 * math.sin(2 * w - 0.8),
-                     tip_bend=3.0 * math.sin(2 * w - 1.7),          # the 3 degree flutter, 2 per loop
+    return wing_pose(elev=GLIDE_ELEV + 0.8 * math.sin(w), twist=GLIDE_TWIST,
+                     mid_bend=GLIDE_ARC[0] + 1.2 * math.sin(2 * w - 0.8),
+                     tip_bend=GLIDE_ARC[1] + 3.0 * math.sin(2 * w - 1.7),   # the 3 degree flutter, 2 per loop
                      fan=1.06 + 0.03 * math.sin(2 * w - 2.4), fan_bend=1.5 * math.sin(2 * w - 2.4))
 
 
@@ -201,16 +203,12 @@ def flap(t: float) -> Pose:
     p = Pose()
     set_wings(p, wing_pose(
         elev=e + (g['elev'] - GLIDE_ELEV) * settle,
-        twist=24 * down - 30 * up,            # leading edge down on the way down, up on the way up
+        twist=24 * down - 30 * up + g['twist'] * settle,   # leading edge down on the way down, up on the way up
         sweep=9 * down - 14 * up,             # forwards on the way down, back on the way up: a figure 8
         mid_fold=48 * up, mid_bend=lag_mid - 10 * up + g['mid_bend'] * settle,
         tip_fold=30 * up, tip_bend=lag_tip + g['tip_bend'] * settle,
-        fan=1.0 + 0.16 * down - 0.65 * up + (g['fan'] - 1.0) * settle,    # spread on the push, closed on the way up
-        fan_bend=0.6 * lag_tip + g['fan_bend'] * settle,
-        # On the way up the folded outer wing hangs down and back, its underside to the ground:
-        # the fan went brown in the game's light and, seen from the front, read as a fist. So the
-        # closed fan turns its top outwards while it trails, as it does when the wing is tucked.
-        fan_twist=135 * up))
+        fan=1.0 + 0.18 * down - 0.4 * up + (g['fan'] - 1.0) * settle,     # spread on the push, closed on the way up
+        fan_bend=0.6 * lag_tip + g['fan_bend'] * settle))
     # the body dips a touch before the push, rises on the downstroke and sinks on the recovery;
     # the nose lifts 4 degrees with the push
     p.loc['body'] = (0.0, 0.0, 0.045 * down - 0.025 * up - 0.008 * bump(t, 0.0, FLAP_A))
@@ -235,7 +233,7 @@ def fall(t: float) -> Pose:
                            tip_fold=6.0, tip_bend=6 * math.sin(w - 2.0),
                            fan=1.15, fan_bend=4 * math.sin(w - 2.6)))
     p.rot['head'] = q((1, 0, 0), 4 + math.sin(w - 0.8))          # looking down
-    p.scale['eye_ctrl'] = (1.0, 1.0, 1.35)                       # eyes wide
+    p.scale['eye_ctrl'] = (1.5, 1.0, 2.3)                        # eyes wide, large enough to show at phone size
     for _side, s in SIDES:                                       # legs dangle forwards 15 degrees
         p.rot[f'leg_upper_{s}'] = q((1, 0, 0), -15 + 3 * math.sin(w + 0.5))
         p.rot[f'leg_lower_{s}'] = q((1, 0, 0), -6 + 4 * math.sin(w - 0.4))
@@ -295,11 +293,8 @@ def crash_wing(f: float, lazy: float) -> dict:
         mid_bend=keys(f, [(0, 0), (1.5, -18), (3.5, 2), (5, 8), (8, 5), (11, -12), (14, -8)]),
         tip_fold=keys(f, [(0, 0), (9, 0), (14, 10)]),
         tip_bend=keys(f, [(0, 0), (2, -25), (4.5, 3), (6, 10), (9, 6), (12, -18), (14, -12)]),
-        fan=keys(f, [(0, 1.0), (3, 1.3), (9, 1.0), (14, 0.85)]),
-        fan_bend=keys(f, [(0, 0), (2.5, -15), (6.5, 5), (10, 3), (14, -8)]),
-        # the drooping fans turn their tops to the front, the lazy wing's further: their undersides
-        # face the ground there and would go brown
-        fan_twist=keys(f, [(0, 0), (9, 0), (14, 45 + 80 * lazy)]))
+        fan=keys(f, [(0, 1.0), (3, 1.15), (9, 1.0), (14, 0.85)]),
+        fan_bend=keys(f, [(0, 0), (2.5, -15), (6.5, 5), (10, 3), (14, -8)]))
 
 
 def crash(t: float) -> Pose:

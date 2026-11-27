@@ -9,6 +9,7 @@
 //      &ref=1 (the matching official art beside the model)  &look=lambert|toon
 //      &sockets=1 (show the customization sockets)  &blink=1  &ui=0 (no controls, for shots)
 //      &status=1 (a one-line caption of what is playing, for recordings)
+//      &tilt=0..15 (game view: the presentation tilt towards the camera, degrees; 14 by default)
 // Screenshot scripts drive it through window.__joudModel (scripts/model-shots.ts,
 // scripts/model-anim.ts).
 //
@@ -20,6 +21,12 @@
 //   flap ends    glide (flap's last frame is glide's first)
 //   dropping     fall, once the bird sinks faster than 65 % of its terminal speed
 //   floor, roof  crash; the next tap goes back to "ready" (idle) at the lane's centre
+//
+// Presentation tilt (Amr, 28 Nov 2026): the game's camera is level, so a gliding wing is seen
+// edge-on. The game view therefore leans the bird 14 degrees towards the camera on a wrapper
+// above the root, which shows the top of the wings. The wrapper turns about the root's own
+// place, so the game keeps owning the root's position and tilt and the bird stays exactly
+// where the physics puts it on screen. The game's bird will need the same wrapper.
 
 import {
   type AnimationAction,
@@ -87,6 +94,8 @@ export interface ModelInfo {
   joints: string[];
   sockets: string[];
   clips: { name: string; duration: number; loop: boolean }[];
+  /** PRESENT_TILT: the lean the game view shows by default, degrees. */
+  presentTilt: number;
 }
 
 /** What is playing now (the still poses report clip ''). */
@@ -123,6 +132,8 @@ export interface ModelApi {
     aim?: [number, number, number] | null;
     /** true: time only moves through step() and seek() (recordings). */
     manual?: boolean;
+    /** Game view: degrees the bird leans towards the camera (0 to 15). */
+    tilt?: number;
     status?: boolean;
   }): void;
   info(): ModelInfo;
@@ -154,6 +165,7 @@ const GAME = MOBILE1.modes.normal;
 const FACING_Y = -55 * DEG; // bird.ts: the model faces left and a little towards the camera
 const TILT_MAX = 30; // bird.ts: degrees of root tilt at vy = +-flapVelocity
 const SQUASH = { wide: 0.1, flat: 0.18, fade: 8 }; // bird.ts: the root's squash on a flap
+export const PRESENT_TILT = 14; // degrees towards the camera, on a wrapper above the root (not in bird.ts yet)
 // Lane units per model unit: bird.ts MODEL_SCALE (0.2) times view.ts's holder scale (birdRadius / 0.12).
 const MODEL_UNIT = 0.2 * (GAME.birdRadius / 0.12);
 const GAME_HALF_HEIGHT = 4.5; // model units the game view shows above and below its centre
@@ -263,6 +275,8 @@ export async function startModelView(): Promise<void> {
   let showSockets = params.get('sockets') === '1';
   let blink = params.get('blink') === '1';
   let status = params.get('status') === '1';
+  const tiltParam = Number(params.get('tilt') ?? PRESENT_TILT);
+  let presentTilt = Number.isFinite(tiltParam) ? Math.max(0, Math.min(15, tiltParam)) : PRESENT_TILT;
   let manual = false; // recordings: time moves only through api.step() and api.seek()
   let zoom = 1; // close-ups for screenshots: the camera's distance is divided by this
   let aim: [number, number, number] | null = null; // look at this point instead of the view's own
@@ -314,7 +328,7 @@ export async function startModelView(): Promise<void> {
     ready: false,
     error: '',
     set: () => {},
-    info: () => ({ model: modelName, pose, view, look, ref: showRef, calls: 0, triangles: 0, fps: 0, bytes, joints: [], sockets: [], clips: [] }),
+    info: () => ({ model: modelName, pose, view, look, ref: showRef, calls: 0, triangles: 0, fps: 0, bytes, joints: [], sockets: [], clips: [], presentTilt: PRESENT_TILT }),
     anim: () => idleState,
     tap: () => {},
     step: () => {},
@@ -384,12 +398,15 @@ export async function startModelView(): Promise<void> {
     overlay.textContent = `model failed: ${api.error}`;
     return;
   }
-  // stage: where bird.ts's root is (height, tilt, squash); facing: bird.ts's turn to the left.
+  // stage: where bird.ts's root is (height, tilt, squash); facing: bird.ts's turn to the left;
+  // present: the wrapper above the root that leans the bird towards the camera (game view).
+  const present = new Group();
   const stage = new Group();
   const facing = new Group();
   facing.add(root);
   stage.add(facing);
-  scene.add(stage);
+  present.add(stage);
+  scene.add(present);
   const axes = sockets.map((s) => {
     const a = new AxesHelper(0.14);
     s.add(a);
@@ -604,6 +621,11 @@ export async function startModelView(): Promise<void> {
     stage.position.y = demo ? body.y / MODEL_UNIT : 0;
     stage.rotation.z = -tiltNow() * TILT_MAX * DEG; // facing left: nose up is a clockwise turn
     stage.scale.set(1 + SQUASH.wide * s, 1 - SQUASH.flat * s, 1 + SQUASH.wide * s);
+    // lean towards the camera about the root's own place: the root stays where the game put it
+    const lean = inGame ? presentTilt * DEG : 0;
+    const y = stage.position.y;
+    present.rotation.x = lean;
+    present.position.set(0, y - y * Math.cos(lean), -y * Math.sin(lean));
     camY += (stage.position.y - camY) * (1 - Math.exp(-dt / 0.09));
     if (!demo) camY = 0;
     ruler.visible = bounds.visible = demo;
@@ -725,6 +747,8 @@ export async function startModelView(): Promise<void> {
   }
   gap();
   for (const v of VIEWS) button(v === 'game' ? 'game view' : v, () => view === v, () => (view = v));
+  button(`tilt ${PRESENT_TILT}°`, () => presentTilt > 0, () => (presentTilt = presentTilt > 0 ? 0 : PRESENT_TILT)).title =
+    'Game view only: lean the bird towards the camera so the top of the wings shows.';
   gap();
   for (const l of LOOKS) button(l, () => look === l, () => (look = l));
   button('official art', () => showRef, () => (showRef = !showRef));
@@ -794,7 +818,7 @@ export async function startModelView(): Promise<void> {
           : '';
       overlay.textContent =
         `Joud ${modelName}  ${(bytes / 1024).toFixed(0)} KB  fps ${fps}  draw calls ${calls}  tris ${triangles}\n` +
-        `pose ${pose}  view ${view}  look ${look}${look === 'toon' ? ' (proposal, not allowed by CLAUDE.md yet)' : ''}\n` +
+        `pose ${pose}  view ${view}${view === 'game' ? ` (leaning ${presentTilt} deg towards the camera)` : ''}  look ${look}${look === 'toon' ? ' (proposal, not allowed by CLAUDE.md yet)' : ''}\n` +
         `bones ${joints.length}  sockets ${sockets.map((s) => s.name.replace('socket_', '')).join(', ')}` +
         (lead ? `\nclip ${playing}  ${a.time.toFixed(2)} / ${lead.action.getClip().duration.toFixed(2)} s` : '') +
         demo;
@@ -812,6 +836,7 @@ export async function startModelView(): Promise<void> {
     if (o.aim !== undefined) aim = o.aim;
     if (o.manual !== undefined) manual = o.manual;
     if (o.status !== undefined) status = o.status;
+    if (o.tilt !== undefined) presentTilt = Math.max(0, Math.min(15, o.tilt));
     if (o.pose) choose(o.pose);
     refresh();
     if (manual) {
@@ -832,6 +857,7 @@ export async function startModelView(): Promise<void> {
     joints,
     sockets: sockets.map((s) => s.name),
     clips: clipInfo,
+    presentTilt: PRESENT_TILT,
   });
   api.anim = animState;
   api.tap = tap;

@@ -55,8 +55,10 @@ export function launch(): Promise<Browser> {
   });
 }
 
-export async function openViewer(browser: Browser, width = W, height = H): Promise<Page> {
+/** `glb`: another joud-v2.glb to show in place of the built one (model:anim's "before" pictures). */
+export async function openViewer(browser: Browser, width = W, height = H, glb?: string): Promise<Page> {
   const page = await browser.newPage({ viewport: { width, height }, ignoreHTTPSErrors: true });
+  if (glb) await page.route('**/models/joud-v2.glb', (r) => r.fulfill({ path: glb, contentType: 'model/gltf-binary' }));
   page.on('pageerror', (e) => {
     // model-gate.ts throws on purpose so the game never starts on this page.
     if (!e.message.includes('[model]')) console.error('page error:', e.message);

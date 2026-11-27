@@ -52,13 +52,22 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
   - Views: front, three-quarter, side, back, face, top, and the game view (the bird turned −55°,
     as `src/scene/bird.ts` draws it). Also the official art beside the model, sockets, blink,
     the toon look proposal, and `&status=1` (a caption of what is playing, for recordings).
+  - **Presentation tilt:** in the game view the bird leans 14° towards the camera
+    (`PRESENT_TILT`; the `tilt` button or `&tilt=0` turns it off), so the tops of the wings show
+    in a glide although the camera is level. The lean is on a wrapper above the root that turns
+    about the root's own place: the root's position and tilt stay the game's. When v2 goes into
+    the game, `src/scene/bird.ts` needs the same wrapper.
   - The game still draws `joud.glb`: v2 and its clips are only in this viewer until approved.
   - The model is built by `tools/blender/build_joud.py`, with the clips' numbers in
     `tools/blender/joud_clips.py` (Blender, run by hand; neither is a game dependency).
     After `npm run build`: `npm run model:shots` writes the stills to `docs/screens/model-v2/`,
     and `npm run model:anim` writes contact sheets and GIFs of the clips to
-    `docs/screens/model-v2/anim/`. Both need Playwright's Chromium; `model:anim` also needs
-    `ffmpeg` on the PATH (a machine tool, like Blender: nothing is added to `package.json`).
+    `docs/screens/model-v2/anim/`, each clip also at the size a phone shows the bird
+    (`*_phone-size.gif`, 26 px per model unit), and the glide without and with the tilt side by
+    side. `npm run model:anim -- compare --before=<an earlier joud-v2.glb>` adds
+    `before-after_*`: that model without the tilt beside this one. Both need Playwright's
+    Chromium; `model:anim` also needs `ffmpeg` on the PATH (a machine tool, like Blender:
+    nothing is added to `package.json`).
 - **Offline:** `public/play/sw.js` caches what the first load fetched, so the game works offline
   afterwards. It makes no network calls of its own.
 

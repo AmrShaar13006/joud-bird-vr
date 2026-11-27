@@ -1,8 +1,8 @@
 // Checks public/models/joud-v2.glb (built by tools/blender/build_joud.py) against the task's
 // budget and contract: size, one mesh and material, the rig, the sockets, the folded pose,
 // a 1024 px WebP atlas and the five animation clips (names, lengths, no key on the root, flap
-// ending on glide, loops closing, the glasses' tilt in the crash). Parses the GLB by hand: no
-// loader needed.
+// ending on glide, loops closing, the glasses' tilt in the crash, the primaries staying with the
+// wing). Parses the GLB by hand: no loader needed.
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -236,6 +236,19 @@ describe('joud-v2.glb', () => {
     });
     expect(Math.max(...angles)).toBeGreaterThan(3);
     expect(Math.max(...angles)).toBeLessThanOrEqual(6.01);
+  });
+
+  it('keeps the primaries with the wing: no clip turns a wing_fan bone more than 20 degrees (twisted, they read as a hand)', () => {
+    for (const clip of animations) {
+      for (const side of ['L', 'R']) {
+        const key = `wing_fan_${side}.rotation`;
+        const bind = rest(key);
+        for (const q of keysOf(clip.name).get(key) ?? []) {
+          const dot = Math.min(1, Math.abs(q.reduce((s, v, i) => s + v * bind[i], 0)));
+          expect((2 * Math.acos(dot) * 180) / Math.PI, `${clip.name} ${key}`).toBeLessThanOrEqual(20);
+        }
+      }
+    }
   });
 
   it('has a single WebP atlas of at most 1024 px', () => {
