@@ -6,9 +6,9 @@
   "look": "lambert",
   "ref": false,
   "calls": 1,
-  "triangles": 7932,
-  "fps": 40,
-  "bytes": 445492,
+  "triangles": 7788,
+  "fps": 44,
+  "bytes": 436168,
   "joints": [
    "root",
    "body",
@@ -62,7 +62,8 @@
     "duration": 0.5833333134651184,
     "loop": false
    }
-  ]
+  ],
+  "presentTilt": 14
  },
  "toon": {
   "model": "v2",
@@ -71,9 +72,9 @@
   "look": "toon",
   "ref": false,
   "calls": 2,
-  "triangles": 15864,
-  "fps": 29,
-  "bytes": 445492,
+  "triangles": 15576,
+  "fps": 34,
+  "bytes": 436168,
   "joints": [
    "root",
    "body",
@@ -127,7 +128,8 @@
     "duration": 0.5833333134651184,
     "loop": false
    }
-  ]
+  ],
+  "presentTilt": 14
  },
  "note": "headless Chromium with SwiftShader (software WebGL): fps only compares the looks"
 }
