@@ -653,6 +653,7 @@ class Game {
     this.endReason = null;
     this.lastRun = null;
     this.lastResult = null;
+    this.beforeStep = null;
     this.flaps = [];
     this.checkpoints = [];
     this.acc = 0;
@@ -765,10 +766,15 @@ class Game {
     let steps = 0;
     while (this.acc >= this.cfg.step) {
       this.acc -= this.cfg.step;
+      if (this.beforeStep) this.beforeStep();
       this.step(this.cfg.step);
       steps++;
     }
     return steps;
+  }
+  /** Time carried to the next frame, as a fraction of a step (0..1): render interpolation. */
+  get alpha() {
+    return this.acc / this.cfg.step;
   }
   /** One fixed simulation step. Live play and replay both run exactly this. */
   step(h) {

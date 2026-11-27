@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 // must be testable without the IWSDK dev plugin, a browser or WebXR.
 export default defineConfig({
   test: {
-    include: ['src/core/**/*.test.ts'],
+    include: ['src/core/**/*.test.ts', 'src/mobile/**/*.test.ts'],
     environment: 'node',
   },
 });

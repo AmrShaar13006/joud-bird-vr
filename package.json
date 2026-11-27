@@ -17,6 +17,7 @@
     "test:determinism": "node scripts/determinism/run.mjs",
     "fixtures": "node scripts/run-ts.mjs scripts/gen-fixtures.ts && node scripts/build-sim.mjs",
     "build:sim": "node scripts/build-sim.mjs",
+    "check:mobile": "node scripts/check-mobile-bundle.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
