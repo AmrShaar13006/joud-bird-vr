@@ -42,11 +42,23 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
 - **Other flags:** `?mode=`, `?mute=1`, `?model=placeholder`, `?fx=0`. URL tuning (`?g=` etc.) is
   ignored here, because ranked rules only come from the ruleset.
 - **Model viewer:** `?debug=1&rig=1&model=v2` (or `v1`) replaces the game with a viewer for
-  `public/models/joud-v2.glb`: poses (folded, spread, flap), views (front, three-quarter, side,
-  back, face), the official art beside the model, sockets, blink, and the toon look proposal.
-  `src/mobile/model-gate.ts` stops the game from starting there. The model is built by
-  `tools/blender/build_joud.py` (Blender, run by hand); `npm run model:shots` (after
-  `npm run build`) writes `docs/screens/model-v2/`.
+  `public/models/joud-v2.glb`. `src/mobile/model-gate.ts` stops the game from starting there.
+  - Stills (folded, spread) and the five clips inside the GLB: `idle`, `flap`, `glide`, `fall`,
+    `crash` (24 fps; no clip keys the root bone, which the game moves and tilts).
+  - **Tap** plays them the way the game will, on the game's own physics (`mobile-1`): a tap plays
+    `flap` (0.08 s cross-fade), which ends on `glide`; `fall` starts once the bird sinks faster
+    than 65 % of its terminal speed; the floor or the roof plays `crash`. A tap during `flap`
+    restarts it with a 0.05 s cross-fade, and taps under 0.3 s apart play it at up to 1.6x.
+  - Views: front, three-quarter, side, back, face, top, and the game view (the bird turned −55°,
+    as `src/scene/bird.ts` draws it). Also the official art beside the model, sockets, blink,
+    the toon look proposal, and `&status=1` (a caption of what is playing, for recordings).
+  - The game still draws `joud.glb`: v2 and its clips are only in this viewer until approved.
+  - The model is built by `tools/blender/build_joud.py`, with the clips' numbers in
+    `tools/blender/joud_clips.py` (Blender, run by hand; neither is a game dependency).
+    After `npm run build`: `npm run model:shots` writes the stills to `docs/screens/model-v2/`,
+    and `npm run model:anim` writes contact sheets and GIFs of the clips to
+    `docs/screens/model-v2/anim/`. Both need Playwright's Chromium; `model:anim` also needs
+    `ffmpeg` on the PATH (a machine tool, like Blender: nothing is added to `package.json`).
 - **Offline:** `public/play/sw.js` caches what the first load fetched, so the game works offline
   afterwards. It makes no network calls of its own.
 

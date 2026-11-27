@@ -19,6 +19,7 @@
     "build:sim": "node scripts/build-sim.mjs",
     "check:mobile": "node scripts/check-mobile-bundle.mjs",
     "model:shots": "node scripts/run-ts.mjs scripts/model-shots.ts",
+    "model:anim": "node scripts/run-ts.mjs scripts/model-anim.ts",
     "preview": "vite preview"
   },
   "dependencies": {

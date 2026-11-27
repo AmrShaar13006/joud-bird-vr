@@ -1,21 +1,44 @@
 // ?debug=1&rig=1&model=v2: Joud's v2 model (public/models/joud-v2.glb, built by
-// tools/blender/build_joud.py) on a plain background, next to the official art.
+// tools/blender/build_joud.py) on a plain background: still poses next to the official art,
+// the five animation clips, and a "tap" demo that plays them the way the game will.
 // Loaded by model-gate.ts through a dynamic import(), so it is its own chunk and the game's
 // first load doesn't change. Developer-only page: its labels are English, not strings.ts.
 //
-// URL: &model=v2|v1  &pose=folded|spread|flap  &view=front|three-quarter|side|back
+// URL: &model=v2|v1  &pose=folded|spread|idle|flap|glide|fall|crash|tap
+//      &view=front|three-quarter|side|back|face|top|game
 //      &ref=1 (the matching official art beside the model)  &look=lambert|toon
 //      &sockets=1 (show the customization sockets)  &blink=1  &ui=0 (no controls, for shots)
-// Screenshot scripts drive it through window.__joudModel (scripts/model-shots.ts).
+//      &status=1 (a one-line caption of what is playing, for recordings)
+// Screenshot scripts drive it through window.__joudModel (scripts/model-shots.ts,
+// scripts/model-anim.ts).
+//
+// The tap demo runs the game's own physics (src/core/physics.ts, mobile-1 normal) and moves
+// the model's root as src/scene/bird.ts does (height, tilt with the vertical speed, squash on a
+// flap). The clips never key the root, so the two add up exactly as they will in the game:
+//   tap          flap (one stroke), cross-fade 0.08 s; a tap during flap restarts it with a
+//                0.05 s cross-fade; taps under 0.3 s apart play it at up to 1.6x speed
+//   flap ends    glide (flap's last frame is glide's first)
+//   dropping     fall, once the bird sinks faster than 65 % of its terminal speed
+//   floor, roof  crash; the next tap goes back to "ready" (idle) at the lane's centre
 
 import {
+  type AnimationAction,
+  type AnimationClip,
+  AnimationMixer,
   AxesHelper,
   BackSide,
   type Bone,
+  BufferGeometry,
   Color,
   DataTexture,
   DirectionalLight,
+  Float32BufferAttribute,
+  Group,
   HemisphereLight,
+  LineBasicMaterial,
+  LineSegments,
+  LoopOnce,
+  LoopRepeat,
   type Material,
   type Mesh,
   MeshBasicMaterial,
@@ -24,6 +47,7 @@ import {
   MeshToonMaterial,
   NearestFilter,
   type Object3D,
+  OrthographicCamera,
   PerspectiveCamera,
   Quaternion,
   RedFormat,
@@ -37,10 +61,15 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import refFront from '../../docs/references/joud_ref_round_front.png?url';
 import refPoster from '../../docs/references/joud_ref_flying_poster_crop.png?url';
 import refSide from '../../docs/references/joud_ref_slim_side.png?url';
+import { type Body, flap as coreFlap, integrate } from '../core/physics';
+import { MOBILE1 } from '../core/ruleset';
 
-export const POSES = ['folded', 'spread', 'flap'] as const;
-export const VIEWS = ['front', 'three-quarter', 'side', 'back', 'face'] as const;
+export const STILLS = ['folded', 'spread'] as const;
+export const CLIPS = ['idle', 'flap', 'glide', 'fall', 'crash'] as const;
+export const POSES = [...STILLS, ...CLIPS, 'tap'] as const;
+export const VIEWS = ['front', 'three-quarter', 'side', 'back', 'face', 'top', 'game'] as const;
 export const LOOKS = ['lambert', 'toon'] as const;
+export type Clip = (typeof CLIPS)[number];
 export type Pose = (typeof POSES)[number];
 export type View = (typeof VIEWS)[number];
 export type Look = (typeof LOOKS)[number];
@@ -57,19 +86,61 @@ export interface ModelInfo {
   bytes: number;
   joints: string[];
   sockets: string[];
+  clips: { name: string; duration: number; loop: boolean }[];
+}
+
+/** What is playing now (the still poses report clip ''). */
+export interface AnimState {
+  clip: Clip | '';
+  /** The leading clip's own time, seconds. */
+  time: number;
+  /** Tap demo: ready (idle, before the first tap), playing, or over (crashed). */
+  phase: 'ready' | 'playing' | 'over';
+  /** Tap demo: height in model units above the lane's centre, speed in lane units per second. */
+  y: number;
+  vy: number;
+  /** The root's tilt in degrees, nose up positive. */
+  tilt: number;
+  taps: number;
+  /** Flap playback speed of the last tap (1 to 1.6) and the gap before it, seconds. */
+  flapSpeed: number;
+  tapGap: number;
 }
 
 export interface ModelApi {
   ready: boolean;
   error: string;
-  set(o: { pose?: Pose; view?: View; look?: Look; ref?: boolean; ui?: boolean; sockets?: boolean; blink?: boolean }): void;
+  /** Setting `pose` (even to the same one) starts it again from its first frame. */
+  set(o: {
+    pose?: Pose;
+    view?: View;
+    look?: Look;
+    ref?: boolean;
+    ui?: boolean;
+    sockets?: boolean;
+    blink?: boolean;
+    zoom?: number;
+    aim?: [number, number, number] | null;
+    /** true: time only moves through step() and seek() (recordings). */
+    manual?: boolean;
+    status?: boolean;
+  }): void;
   info(): ModelInfo;
+  anim(): AnimState;
+  /** One tap of the tap demo (pose 'tap'). */
+  tap(): void;
+  /** Manual clock: advance everything by dt seconds and draw one frame. */
+  step(dt: number): void;
+  /** Manual clock, a single clip: show the clip at `time` seconds. */
+  seek(time: number): void;
 }
 
 interface JoudExtras {
   poses?: Record<string, Record<string, number[]>>;
+  poses_scale?: Record<string, Record<string, number[]>>;
   blink?: { bone: string; local_axis: 'x' | 'y' | 'z'; closed_scale: number };
   sockets?: Record<string, string>;
+  clips?: Record<string, { frames: number; fps: number; loop: boolean }>;
 }
 
 const DEG = Math.PI / 180;
@@ -78,18 +149,47 @@ const OUTLINE = '#3b2a20';
 const OUTLINE_WIDTH = 0.011; // model units (the game draws Joud at 0.2 scale)
 const SWATCH_V = 0.035; // build_joud.py: 1 - ATLAS_FIT
 
+// --- how the game shows and moves the bird ----------------------------------------------------------
+const GAME = MOBILE1.modes.normal;
+const FACING_Y = -55 * DEG; // bird.ts: the model faces left and a little towards the camera
+const TILT_MAX = 30; // bird.ts: degrees of root tilt at vy = +-flapVelocity
+const SQUASH = { wide: 0.1, flat: 0.18, fade: 8 }; // bird.ts: the root's squash on a flap
+// Lane units per model unit: bird.ts MODEL_SCALE (0.2) times view.ts's holder scale (birdRadius / 0.12).
+const MODEL_UNIT = 0.2 * (GAME.birdRadius / 0.12);
+const GAME_HALF_HEIGHT = 4.5; // model units the game view shows above and below its centre
+const RULER_STEP = 3; // model units between the game view's guide lines
+
+// --- how the clips follow each other (Amr, 27 Nov 2026) -----------------------------------------------
+const FADE = 0.08; // seconds: every cross-fade ...
+const FADE_QUICK = 0.05; // ... but a tap during flap, and the crash on contact
+const FAST_TAP = 0.3; // taps closer than this speed the flap up ...
+const FAST_TAP_FULL = 0.15; // ... reaching FLAP_MAX_SPEED at this gap
+const FLAP_MAX_SPEED = 1.6;
+const FALL_VY = 0.65 * GAME.maxFall; // lane units/s: sinking faster than this is a fall, not a glide
+const REPLAY_AFTER: Record<Clip, number> = { idle: 0, flap: 0.7, glide: 0, fall: 0, crash: 1.3 }; // a one-shot's hold
+const DEFAULT_LOOP: Record<Clip, boolean> = { idle: true, flap: false, glide: true, fall: true, crash: false };
+
+/** Flap playback speed for a tap that comes `gap` seconds after the one before. */
+export function flapSpeed(gap: number): number {
+  if (!(gap < FAST_TAP)) return 1;
+  return 1 + (FLAP_MAX_SPEED - 1) * Math.min(1, (FAST_TAP - gap) / (FAST_TAP - FAST_TAP_FULL));
+}
+
+const isClip = (p: Pose): p is Clip => (CLIPS as readonly string[]).includes(p);
+/** Wings down: the poses that match the round front art. */
+const wingsDown = (p: Pose): boolean => p === 'folded' || p === 'idle';
+
 /** The official art that matches each view and pose, with a caption. */
 function referenceFor(view: View, pose: Pose): { src: string; caption: string } | null {
-  if (view === 'back') return null;
+  if (view === 'back' || view === 'top') return null; // no art from behind or above
   if (view === 'side') return { src: refSide, caption: 'Slim outfit, side (compare silhouette, legs, tail)' };
-  if ((view === 'front' && pose === 'folded') || view === 'face') return { src: refFront, caption: 'Round outfit, front (wings down)' };
+  if ((view === 'front' && wingsDown(pose)) || view === 'face') return { src: refFront, caption: 'Round outfit, front (wings down)' };
   return { src: refPoster, caption: 'Flying poster (wings spread)' };
 }
 
 /** Camera azimuth (about Y, from +Z = front; +90 = Joud's left side), elevation, distance. */
 function cameraFor(view: View, pose: Pose): { az: number; el: number; dist: number; y: number } {
-  const wide = pose !== 'folded';
-  const dist = wide ? 8.2 : 4.6; // spread: the wings span about 3.6
+  const dist = wingsDown(pose) ? 4.6 : 8.2; // wings out: they span about 3.3
   switch (view) {
     case 'front':
       return { az: 0, el: 4, dist, y: 0.2 };
@@ -103,6 +203,12 @@ function cameraFor(view: View, pose: Pose): { az: number; el: number; dist: numb
       return { az: 180, el: 4, dist, y: 0.2 };
     case 'face':
       return { az: 0, el: 2, dist: 1.9, y: 0.78 };
+    // Straight down, Joud's front towards the bottom of the picture.
+    case 'top':
+      return { az: 0, el: 89.9, dist: 8.2, y: 0.2 };
+    // The game view has its own camera (straight-on, no perspective): see applyView().
+    case 'game':
+      return { az: 0, el: 0, dist: 10, y: 0.2 };
   }
 }
 
@@ -135,6 +241,17 @@ function outlineMaterial(): MeshBasicMaterial {
   return mat;
 }
 
+/** Horizontal lines at the given heights, `halfWidth` to either side. */
+function hLines(ys: number[], halfWidth: number, colour: string): LineSegments {
+  const pts: number[] = [];
+  for (const y of ys) pts.push(-halfWidth, y, 0, halfWidth, y, 0);
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(pts, 3));
+  const lines = new LineSegments(geo, new LineBasicMaterial({ color: new Color(colour) }));
+  lines.frustumCulled = false;
+  return lines;
+}
+
 export async function startModelView(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const modelName = params.get('model') === 'v1' ? 'v1' : 'v2';
@@ -145,6 +262,10 @@ export async function startModelView(): Promise<void> {
   let ui = params.get('ui') !== '0';
   let showSockets = params.get('sockets') === '1';
   let blink = params.get('blink') === '1';
+  let status = params.get('status') === '1';
+  let manual = false; // recordings: time moves only through api.step() and api.seek()
+  let zoom = 1; // close-ups for screenshots: the camera's distance is divided by this
+  let aim: [number, number, number] | null = null; // look at this point instead of the view's own
 
   // Take over the page: the game's frame stays hidden and never starts (see model-gate.ts).
   const gameFrame = document.getElementById('frame');
@@ -174,18 +295,30 @@ export async function startModelView(): Promise<void> {
     'white-space:pre-wrap;max-width:calc(50% - 32px);pointer-events:none';
   document.body.appendChild(overlay);
 
+  // One line saying what is playing, for recordings made without the controls.
+  const caption = document.createElement('div');
+  caption.style.cssText =
+    'position:fixed;left:8px;bottom:8px;padding:3px 8px;font:600 14px/1.3 ui-monospace,monospace;color:#1d2b22;' +
+    'background:rgba(255,255,255,.8);border-radius:6px;direction:ltr;pointer-events:none;white-space:pre';
+  document.body.appendChild(caption);
+
   const bar = document.createElement('div');
   bar.style.cssText =
     'position:fixed;left:0;right:0;bottom:0;padding:8px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;' +
-    'direction:ltr;background:rgba(255,255,255,.85);font:13px system-ui,sans-serif';
+    'align-items:center;direction:ltr;background:rgba(255,255,255,.85);font:13px system-ui,sans-serif';
   document.body.appendChild(bar);
 
   let bytes = 0;
+  const idleState: AnimState = { clip: '', time: 0, phase: 'ready', y: 0, vy: 0, tilt: 0, taps: 0, flapSpeed: 1, tapGap: 0 };
   const api: ModelApi = {
     ready: false,
     error: '',
     set: () => {},
-    info: () => ({ model: modelName, pose, view, look, ref: showRef, calls: 0, triangles: 0, fps: 0, bytes, joints: [], sockets: [] }),
+    info: () => ({ model: modelName, pose, view, look, ref: showRef, calls: 0, triangles: 0, fps: 0, bytes, joints: [], sockets: [], clips: [] }),
+    anim: () => idleState,
+    tap: () => {},
+    step: () => {},
+    seek: () => {},
   };
   (window as unknown as { __joudModel?: ModelApi }).__joudModel = api;
 
@@ -193,11 +326,13 @@ export async function startModelView(): Promise<void> {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor(new Color(BG));
   const scene = new Scene();
-  // Same light colours and strengths as the game (view.ts); the sun follows the camera.
+  // Same light colours and strengths as the game (view.ts). The sun follows the camera, except
+  // in the game view, where it stands where the game's does.
   scene.add(new HemisphereLight('#ffffff', '#88aa77', 2.2));
   const sun = new DirectionalLight('#ffffff', 1.4);
   scene.add(sun, sun.target);
   const camera = new PerspectiveCamera(30, 1, 0.05, 50);
+  const gameCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 50); // view.ts: straight-on, no perspective
 
   const file = modelName === 'v2' ? '../models/joud-v2.glb' : '../models/joud.glb';
   let root: Object3D;
@@ -205,8 +340,8 @@ export async function startModelView(): Promise<void> {
   let lambert: MeshLambertMaterial;
   let toon: MeshToonMaterial;
   let outline: SkinnedMesh | null = null;
+  let clipList: AnimationClip[] = [];
   const bones = new Map<string, Bone>();
-  const bind = new Map<string, Quaternion>();
   const sockets: Object3D[] = [];
   let extras: JoudExtras = {};
   try {
@@ -217,13 +352,11 @@ export async function startModelView(): Promise<void> {
     bytes = buf.byteLength;
     const gltf = await new GLTFLoader().parseAsync(buf, url);
     root = gltf.scene;
+    clipList = gltf.animations;
     let mesh: Mesh | null = null;
     root.traverse((o) => {
       if (!mesh && (o as Mesh).isMesh) mesh = o as Mesh;
-      if ((o as Bone).isBone) {
-        bones.set(o.name, o as Bone);
-        bind.set(o.name, o.quaternion.clone());
-      }
+      if ((o as Bone).isBone) bones.set(o.name, o as Bone);
       if (o.name.startsWith('socket_')) sockets.push(o);
       const ex = (o.userData as { joud?: JoudExtras }).joud;
       if (ex) extras = ex;
@@ -251,41 +384,42 @@ export async function startModelView(): Promise<void> {
     overlay.textContent = `model failed: ${api.error}`;
     return;
   }
-  scene.add(root);
+  // stage: where bird.ts's root is (height, tilt, squash); facing: bird.ts's turn to the left.
+  const stage = new Group();
+  const facing = new Group();
+  facing.add(root);
+  stage.add(facing);
+  scene.add(stage);
   const axes = sockets.map((s) => {
     const a = new AxesHelper(0.14);
     s.add(a);
     return a;
   });
+  // Game view, tap demo: guide lines that show the bird's rise and fall, and the lane's floor and roof.
+  const laneHalf = GAME.laneH / 2 / MODEL_UNIT;
+  const ruler = hLines(Array.from({ length: 9 }, (_v, i) => (i - 4) * RULER_STEP), 40, '#d3dbe6');
+  const bounds = hLines([-laneHalf, laneHalf], 40, '#248F59');
+  ruler.position.z = bounds.position.z = -5;
+  scene.add(ruler, bounds);
 
-  // --- poses -------------------------------------------------------------------------------------
+  // --- still poses -------------------------------------------------------------------------------
+  const bind = new Map<string, { p: Vector3; q: Quaternion; s: Vector3 }>();
+  for (const [n, b] of bones) bind.set(n, { p: b.position.clone(), q: b.quaternion.clone(), s: b.scale.clone() });
   const folded = extras.poses?.rest_folded ?? {};
-  const wingNames = [...bones.keys()].filter((n) => n.startsWith('wing_'));
-  // Each wing bone's axis for flapping: the model's front-back axis (+Z) in the bone's frame
-  // at the bind pose, so the wing turns within its own plane.
-  const flapAxis = new Map<string, Vector3>();
-  root.updateMatrixWorld(true);
-  const wq = new Quaternion();
-  for (const n of wingNames) {
-    bones.get(n)!.getWorldQuaternion(wq);
-    flapAxis.set(n, new Vector3(0, 0, 1).applyQuaternion(wq.invert()));
+  const foldedScale = extras.poses_scale?.rest_folded ?? {};
+  function resetBind(): void {
+    for (const [n, b] of bones) {
+      const r = bind.get(n)!;
+      b.position.copy(r.p);
+      b.quaternion.copy(r.q);
+      b.scale.copy(r.s);
+    }
   }
-  const tmpQ = new Quaternion();
-  function applyPose(t: number): void {
-    for (const n of wingNames) {
-      const b = bones.get(n)!;
-      if (pose === 'folded' && folded[n]) {
-        b.quaternion.fromArray(folded[n]);
-      } else if (pose === 'flap') {
-        // a full beat at 2.5 beats/s: +55 degrees up to -45 down; the mid and tip lag and curl
-        const side = n.endsWith('_L') ? 1 : -1;
-        const phase = n.startsWith('wing_shoulder') ? 0 : n.startsWith('wing_mid') ? 0.5 : 0.9;
-        const amp = n.startsWith('wing_shoulder') ? 50 : n.startsWith('wing_mid') ? 14 : 10;
-        const a = (amp * Math.sin(t * 2.5 * 2 * Math.PI - phase) + (n.startsWith('wing_shoulder') ? 5 : 0)) * DEG;
-        tmpQ.setFromAxisAngle(flapAxis.get(n)!, side * a);
-        b.quaternion.copy(bind.get(n)!).multiply(tmpQ);
-      } else {
-        b.quaternion.copy(bind.get(n)!);
+  function applyStill(t: number): void {
+    if (pose === 'folded') {
+      for (const [n, b] of bones) {
+        if (folded[n]) b.quaternion.fromArray(folded[n]);
+        if (foldedScale[n]) b.scale.fromArray(foldedScale[n]);
       }
     }
     const eye = extras.blink ? bones.get(extras.blink.bone) : undefined;
@@ -297,6 +431,199 @@ export async function startModelView(): Promise<void> {
     }
   }
 
+  // --- clips ---------------------------------------------------------------------------------------
+  // Weights are set by hand so they always add up to 1: a channel that a clip leaves at rest
+  // then blends towards the bind pose by exactly the other clips' share, and a cross-fade that
+  // is interrupted by the next one carries on from the pose on screen without a jump.
+  const mixer = new AnimationMixer(root);
+  const actions = new Map<Clip, AnimationAction>();
+  const loops = new Map<Clip, boolean>();
+  const flapPool: AnimationAction[] = []; // a restarted flap fades in over the one still playing
+  for (const c of clipList) {
+    const name = c.name as Clip;
+    if (!isClip(name)) continue;
+    const loop = extras.clips?.[name]?.loop ?? DEFAULT_LOOP[name];
+    loops.set(name, loop);
+    const make = (clip: AnimationClip): AnimationAction => {
+      const a = mixer.clipAction(clip);
+      a.setLoop(loop ? LoopRepeat : LoopOnce, loop ? Infinity : 1);
+      a.clampWhenFinished = true;
+      return a;
+    };
+    actions.set(name, make(c));
+    if (name === 'flap') flapPool.push(actions.get(name)!, make(c.clone()), make(c.clone()));
+  }
+  const hasClips = CLIPS.every((c) => actions.has(c));
+  if (!hasClips && !STILLS.includes(pose as (typeof STILLS)[number])) pose = 'folded';
+
+  let lead: { clip: Clip; action: AnimationAction } | null = null;
+  const live = new Set<AnimationAction>(); // every action with some weight
+  let fade: { rest: [AnimationAction, number][]; t: number; d: number } | null = null;
+  let hold = 0; // seconds a finished one-shot has been held (single clips replay after REPLAY_AFTER)
+
+  function fadeTo(clip: Clip, seconds: number, speed = 1): void {
+    let next = actions.get(clip)!;
+    if (clip === 'flap') next = flapPool.find((a) => !live.has(a)) ?? flapPool.reduce((a, b) => (a.getEffectiveWeight() <= b.getEffectiveWeight() ? a : b));
+    const rest: [AnimationAction, number][] = [];
+    for (const a of live) if (a !== next) rest.push([a, a.getEffectiveWeight()]);
+    next.reset();
+    next.setEffectiveTimeScale(speed);
+    next.play();
+    live.add(next);
+    if (seconds > 0 && rest.length > 0) {
+      next.setEffectiveWeight(0);
+      fade = { rest, t: 0, d: seconds };
+    } else {
+      for (const [a] of rest) {
+        a.stop();
+        live.delete(a);
+      }
+      next.setEffectiveWeight(1);
+      fade = null;
+    }
+    lead = { clip, action: next };
+    hold = 0;
+  }
+
+  function stepFade(dt: number): void {
+    if (!fade || !lead) return;
+    fade.t += dt;
+    const k = Math.min(1, fade.t / fade.d);
+    lead.action.setEffectiveWeight(k);
+    for (const [a, w] of fade.rest) {
+      if (k < 1) a.setEffectiveWeight(w * (1 - k));
+      else {
+        a.stop();
+        live.delete(a);
+      }
+    }
+    if (k >= 1) fade = null;
+  }
+
+  const leadDone = (): boolean => !!lead && !loops.get(lead.clip) && lead.action.time >= lead.action.getClip().duration - 1e-4;
+
+  // --- the tap demo -----------------------------------------------------------------------------------
+  const body: Body = { y: 0, vy: 0 };
+  let phase: AnimState['phase'] = 'ready';
+  let clock = 0; // seconds since the page started (the manual clock when recording)
+  let acc = 0; // time not yet simulated (the game's fixed step)
+  let squash = 0;
+  let lastTap = Number.NEGATIVE_INFINITY;
+  let overAt = 0;
+  let taps = 0;
+  let speed = 1;
+  let tapGap = 0;
+  let tapFlash = 0; // seconds the caption still shows the tap mark
+  let camY = 0; // the game view's camera follows the bird softly
+
+  function resetDemo(): void {
+    body.y = 0;
+    body.vy = 0;
+    phase = 'ready';
+    acc = 0;
+    squash = 0;
+    taps = 0;
+    speed = 1;
+    tapGap = 0;
+    camY = 0;
+    lastTap = Number.NEGATIVE_INFINITY;
+    fadeTo('idle', lead ? FADE : 0);
+  }
+
+  function tap(): void {
+    if (pose !== 'tap' || !hasClips) return;
+    if (phase === 'over') {
+      // as the game does: no restart while the crash still plays, then back to "ready"
+      if (clock - overAt >= GAME.restartLockout) resetDemo();
+      return;
+    }
+    tapGap = clock - lastTap;
+    speed = phase === 'playing' ? flapSpeed(tapGap) : 1;
+    if (phase !== 'playing') tapGap = 0;
+    lastTap = clock;
+    taps++;
+    phase = 'playing';
+    coreFlap(body, GAME);
+    squash = 1;
+    tapFlash = 0.14;
+    fadeTo('flap', lead?.clip === 'flap' ? FADE_QUICK : FADE, speed);
+  }
+
+  function stepDemo(dt: number): void {
+    squash = Math.max(0, squash - dt * SQUASH.fade);
+    if (phase !== 'playing') return;
+    acc += dt;
+    while (acc >= GAME.step && phase === 'playing') {
+      acc -= GAME.step;
+      integrate(body, GAME.step, GAME);
+      const half = GAME.laneH / 2;
+      if (body.y - GAME.birdRadius <= -half || body.y + GAME.birdRadius >= half) {
+        phase = 'over';
+        overAt = clock;
+        fadeTo('crash', FADE_QUICK);
+      }
+    }
+    if (phase !== 'playing' || !lead) return;
+    if (lead.clip === 'flap' && leadDone()) fadeTo('glide', FADE);
+    else if (lead.clip === 'glide' && body.vy < FALL_VY) fadeTo('fall', FADE);
+  }
+
+  /** A single clip: a one-shot is held on its last frame for a moment, then played again. */
+  function stepSingle(dt: number): void {
+    if (!lead || !leadDone()) return;
+    hold += dt;
+    if (hold >= REPLAY_AFTER[lead.clip]) fadeTo(lead.clip, 0);
+  }
+
+  function startPose(): void {
+    mixer.stopAllAction();
+    live.clear();
+    fade = null;
+    lead = null;
+    hold = 0;
+    resetBind(); // a clip's resting channels blend towards what the bones hold when it starts
+    stage.position.set(0, 0, 0);
+    stage.rotation.set(0, 0, 0);
+    stage.scale.set(1, 1, 1);
+    if (!hasClips && !STILLS.includes(pose as (typeof STILLS)[number])) pose = 'folded';
+    if (pose === 'tap') resetDemo();
+    else if (isClip(pose)) fadeTo(pose, 0);
+  }
+
+  /** The root's place, as bird.ts sets it; only the game view shows it. */
+  function tiltNow(): number {
+    if (view !== 'game') return 0;
+    if (pose === 'tap') return phase === 'playing' ? Math.max(-1, Math.min(1, body.vy / GAME.flapVelocity)) : 0;
+    return pose === 'fall' ? -1 : 0; // the game only shows fall while the bird drops, nose down
+  }
+  function placeStage(dt: number): void {
+    const inGame = view === 'game';
+    const demo = inGame && pose === 'tap';
+    facing.rotation.y = inGame ? FACING_Y : 0;
+    const s = demo ? squash : 0;
+    stage.position.y = demo ? body.y / MODEL_UNIT : 0;
+    stage.rotation.z = -tiltNow() * TILT_MAX * DEG; // facing left: nose up is a clockwise turn
+    stage.scale.set(1 + SQUASH.wide * s, 1 - SQUASH.flat * s, 1 + SQUASH.wide * s);
+    camY += (stage.position.y - camY) * (1 - Math.exp(-dt / 0.09));
+    if (!demo) camY = 0;
+    ruler.visible = bounds.visible = demo;
+    ruler.position.y = Math.round(camY / RULER_STEP) * RULER_STEP;
+  }
+
+  function advance(dt: number): void {
+    clock += dt;
+    tapFlash = Math.max(0, tapFlash - dt);
+    if (lead) {
+      if (pose === 'tap') stepDemo(dt);
+      else stepSingle(dt);
+      stepFade(dt);
+      mixer.update(dt);
+    } else {
+      applyStill(clock);
+    }
+    placeStage(dt);
+  }
+
   function applyLook(): void {
     if (!skinned) return;
     skinned.material = look === 'toon' ? toon : lambert;
@@ -306,10 +633,19 @@ export async function startModelView(): Promise<void> {
   const camPos = new Vector3();
   const target = new Vector3();
   function applyView(): void {
+    if (view === 'game') {
+      // view.ts: the camera looks straight down -Z, and the sun stands up and to the left
+      gameCamera.position.set(0, camY + 0.2, 10);
+      gameCamera.rotation.set(0, 0, 0);
+      sun.position.set(-1, 2, 3);
+      sun.target.position.set(0, 0, 0);
+      return;
+    }
     const c = cameraFor(view, pose);
     camPos.set(Math.sin(c.az * DEG) * Math.cos(c.el * DEG), Math.sin(c.el * DEG), Math.cos(c.az * DEG) * Math.cos(c.el * DEG));
-    target.set(0, c.y, 0);
-    camera.position.copy(target).addScaledVector(camPos, c.dist);
+    if (aim) target.fromArray(aim);
+    else target.set(0, c.y, 0);
+    camera.position.copy(target).addScaledVector(camPos, c.dist / zoom);
     camera.lookAt(target);
     sun.position.copy(camera.position).add(camPos.set(-1, 2, 0));
     sun.target.position.copy(target);
@@ -325,10 +661,17 @@ export async function startModelView(): Promise<void> {
     renderer.setSize(cw, h, false);
     camera.aspect = cw / h;
     camera.updateProjectionMatrix();
+    const halfH = GAME_HALF_HEIGHT / zoom;
+    gameCamera.top = halfH;
+    gameCamera.bottom = -halfH;
+    gameCamera.right = (halfH * cw) / h;
+    gameCamera.left = -gameCamera.right;
+    gameCamera.updateProjectionMatrix();
     const r = referenceFor(view, pose);
     refBox.style.display = showRef ? 'flex' : 'none';
     refBox.style.width = `${w - cw}px`;
     refBox.style.height = `${h - (ui ? bar.offsetHeight : 0)}px`;
+    caption.style.bottom = `${(ui ? bar.offsetHeight : 0) + 8}px`;
     if (r) {
       refImg.style.display = '';
       if (!refImg.src.endsWith(r.src)) refImg.src = r.src;
@@ -336,29 +679,64 @@ export async function startModelView(): Promise<void> {
     } else {
       refImg.style.display = 'none';
       refImg.removeAttribute('src');
-      refCap.textContent = 'No back view in the official art: the plain back and the collar going round are assumptions, for Joud’s approval.';
+      refCap.textContent =
+        view === 'top'
+          ? 'From above, Joud’s front towards the bottom: the green edge leads on both wings. (No view from above in the official art.)'
+          : 'No back view in the official art: the plain back and the collar going round are assumptions, for Joud’s approval.';
     }
   }
 
   const buttons: { el: HTMLButtonElement; on: () => boolean }[] = [];
-  function button(label: string, on: () => boolean, click: () => void): void {
+  function button(label: string, on: () => boolean, click: () => void, press = false): HTMLButtonElement {
     const el = document.createElement('button');
     el.type = 'button';
     el.textContent = label;
-    el.style.cssText = 'padding:6px 10px;border:1px solid #888;border-radius:6px;background:#fff;color:#111';
-    el.addEventListener('click', () => {
+    el.style.cssText = 'padding:6px 10px;border:1px solid #888;border-radius:6px;background:#fff;color:#111;touch-action:manipulation';
+    // `press`: act on the press itself, so quick taps on a phone are not lost or delayed
+    el.addEventListener(press ? 'pointerdown' : 'click', (e) => {
+      if (press) e.preventDefault();
       click();
       refresh();
     });
     buttons.push({ el, on });
     bar.appendChild(el);
+    return el;
   }
-  for (const p of POSES) button(p, () => pose === p, () => (pose = p));
-  for (const v of VIEWS) button(v, () => view === v, () => (view = v));
+  function gap(): void {
+    const el = document.createElement('span');
+    el.style.cssText = 'width:10px';
+    bar.appendChild(el);
+  }
+  const choose = (p: Pose): void => {
+    pose = p;
+    startPose();
+  };
+  for (const p of STILLS) button(p, () => pose === p, () => choose(p));
+  if (hasClips) {
+    gap();
+    for (const c of CLIPS) button(c, () => pose === c, () => choose(c));
+    const tapButton = button('tap', () => pose === 'tap', () => {
+      if (pose !== 'tap') choose('tap');
+      tap();
+    }, true);
+    tapButton.style.padding = '10px 22px';
+    tapButton.style.fontWeight = '700';
+    tapButton.title = 'Each press is one tap. Press quickly: a tap during flap restarts it, and taps under 0.3 s apart play it faster. Space and a tap on the picture do the same.';
+  }
+  gap();
+  for (const v of VIEWS) button(v === 'game' ? 'game view' : v, () => view === v, () => (view = v));
+  gap();
   for (const l of LOOKS) button(l, () => look === l, () => (look = l));
   button('official art', () => showRef, () => (showRef = !showRef));
   button('sockets', () => showSockets, () => (showSockets = !showSockets));
   button('blink', () => blink, () => (blink = !blink));
+  canvas.addEventListener('pointerdown', () => tap());
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && !e.repeat && pose === 'tap') {
+      e.preventDefault();
+      tap();
+    }
+  });
 
   function refresh(): void {
     for (const b of buttons) {
@@ -370,22 +748,8 @@ export async function startModelView(): Promise<void> {
     overlay.style.display = ui ? 'block' : 'none';
     for (const a of axes) a.visible = showSockets;
     applyLook();
-    applyView();
     layout();
   }
-
-  api.set = (o) => {
-    if (o.pose) pose = o.pose;
-    if (o.view) view = o.view;
-    if (o.look) look = o.look;
-    if (o.ref !== undefined) showRef = o.ref;
-    if (o.ui !== undefined) ui = o.ui;
-    if (o.sockets !== undefined) showSockets = o.sockets;
-    if (o.blink !== undefined) blink = o.blink;
-    refresh();
-  };
-  window.addEventListener('resize', layout);
-  refresh();
 
   let calls = 0;
   let triangles = 0;
@@ -394,6 +758,67 @@ export async function startModelView(): Promise<void> {
   let fpsStart = performance.now();
   let overlayAt = 0;
   const joints = skinned ? skinned.skeleton.bones.map((b) => b.name) : [];
+  const clipInfo = CLIPS.filter((c) => actions.has(c)).map((c) => ({
+    name: c as string,
+    duration: actions.get(c)!.getClip().duration,
+    loop: loops.get(c) ?? false,
+  }));
+  const animState = (): AnimState => ({
+    clip: lead ? lead.clip : '',
+    time: lead ? lead.action.time : 0,
+    phase,
+    y: body.y / MODEL_UNIT,
+    vy: body.vy,
+    tilt: tiltNow() * TILT_MAX,
+    taps,
+    flapSpeed: speed,
+    tapGap,
+  });
+
+  function draw(now: number): void {
+    applyView();
+    renderer.render(scene, view === 'game' ? gameCamera : camera);
+    calls = renderer.info.render.calls;
+    triangles = renderer.info.render.triangles;
+    const playing = lead ? `${lead.clip}${lead.clip === 'flap' && speed > 1 && pose === 'tap' ? ` x${speed.toFixed(2)}` : ''}` : pose;
+    caption.style.display = status ? 'block' : 'none';
+    if (status) caption.textContent = `${tapFlash > 0 ? '● tap  ' : ''}${playing}`;
+    if (ui && (manual || now - overlayAt > 120)) {
+      overlayAt = now;
+      const a = animState();
+      const demo =
+        pose === 'tap'
+          ? `\ntap demo (${a.phase}): taps ${a.taps}  flap speed ${a.flapSpeed.toFixed(2)}x` +
+            `${a.tapGap > 0 ? ` (${a.tapGap.toFixed(2)} s after the tap before)` : ''}\n` +
+            `height ${a.y.toFixed(1)}  vy ${a.vy.toFixed(2)}  root tilt ${a.tilt.toFixed(0)} deg${view === 'game' ? '' : ' (height and tilt show in the game view)'}`
+          : '';
+      overlay.textContent =
+        `Joud ${modelName}  ${(bytes / 1024).toFixed(0)} KB  fps ${fps}  draw calls ${calls}  tris ${triangles}\n` +
+        `pose ${pose}  view ${view}  look ${look}${look === 'toon' ? ' (proposal, not allowed by CLAUDE.md yet)' : ''}\n` +
+        `bones ${joints.length}  sockets ${sockets.map((s) => s.name.replace('socket_', '')).join(', ')}` +
+        (lead ? `\nclip ${playing}  ${a.time.toFixed(2)} / ${lead.action.getClip().duration.toFixed(2)} s` : '') +
+        demo;
+    }
+  }
+
+  api.set = (o) => {
+    if (o.view) view = o.view;
+    if (o.look) look = o.look;
+    if (o.ref !== undefined) showRef = o.ref;
+    if (o.ui !== undefined) ui = o.ui;
+    if (o.sockets !== undefined) showSockets = o.sockets;
+    if (o.blink !== undefined) blink = o.blink;
+    if (o.zoom !== undefined) zoom = o.zoom;
+    if (o.aim !== undefined) aim = o.aim;
+    if (o.manual !== undefined) manual = o.manual;
+    if (o.status !== undefined) status = o.status;
+    if (o.pose) choose(o.pose);
+    refresh();
+    if (manual) {
+      advance(0);
+      draw(performance.now());
+    }
+  };
   api.info = () => ({
     model: modelName,
     pose,
@@ -406,25 +831,40 @@ export async function startModelView(): Promise<void> {
     bytes,
     joints,
     sockets: sockets.map((s) => s.name),
+    clips: clipInfo,
   });
+  api.anim = animState;
+  api.tap = tap;
+  api.step = (dt) => {
+    advance(dt);
+    draw(performance.now());
+  };
+  api.seek = (time) => {
+    if (!lead || pose === 'tap') return;
+    stepFade(Number.POSITIVE_INFINITY);
+    hold = 0;
+    lead.action.time = Math.max(0, Math.min(time, lead.action.getClip().duration));
+    mixer.update(0);
+    placeStage(0);
+    draw(performance.now());
+  };
+  window.addEventListener('resize', layout);
+  startPose();
+  refresh();
 
+  let last = 0;
   function frame(now: number): void {
-    applyPose(now / 1000);
-    renderer.render(scene, camera);
-    calls = renderer.info.render.calls;
-    triangles = renderer.info.render.triangles;
-    frames++;
+    const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
+    last = now;
+    if (!manual) {
+      advance(dt);
+      draw(now);
+      frames++;
+    }
     if (now - fpsStart >= 1000) {
       fps = Math.round((frames * 1000) / (now - fpsStart));
       frames = 0;
       fpsStart = now;
-    }
-    if (ui && now - overlayAt > 250) {
-      overlayAt = now;
-      overlay.textContent =
-        `Joud ${modelName}  ${(bytes / 1024).toFixed(0)} KB  fps ${fps}  draw calls ${calls}  tris ${triangles}\n` +
-        `pose ${pose}  view ${view}  look ${look}${look === 'toon' ? ' (proposal, not allowed by CLAUDE.md yet)' : ''}\n` +
-        `bones ${joints.length}  sockets ${sockets.map((s) => s.name.replace('socket_', '')).join(', ')}`;
     }
     requestAnimationFrame(frame);
   }

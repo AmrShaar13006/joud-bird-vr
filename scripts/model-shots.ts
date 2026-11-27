@@ -1,5 +1,5 @@
 // Screenshots of Joud's v2 model (play/?debug=1&rig=1&model=v2) next to the official art.
-// Usage: npm run build && npm run model:shots
+// Usage: npm run build && npm run model:shots   (the clips: npm run model:anim, model-anim.ts)
 // Needs Playwright's Chromium: npx playwright install chromium
 // (or set MODEL_CHROMIUM to another Chrome/Chromium binary).
 //
@@ -19,7 +19,7 @@ import type { ModelApi, ModelInfo } from '../src/mobile/model-view';
 
 const PORT = 4182;
 const BASE = `https://localhost:${PORT}/play/?debug=1&rig=1&model=v2&ui=0`;
-const OUT = resolve('docs/screens/model-v2');
+export const OUT = resolve('docs/screens/model-v2');
 const W = 1280;
 const H = 720;
 const QUALITY = 82;
@@ -35,19 +35,28 @@ const SHOTS = [
   ['back', 'folded'],
   ['back', 'spread'],
   ['face', 'folded'],
+  ['top', 'spread'], // from above: the green edge leads on both wings
 ] as const;
 
-type ModelWindow = Window & { __joudModel?: ModelApi };
+export type ModelWindow = Window & { __joudModel?: ModelApi };
 
-function startServer(): ChildProcess {
+export function startServer(): ChildProcess {
   return spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], {
     stdio: 'ignore',
     shell: process.platform === 'win32',
   });
 }
 
-async function openViewer(browser: Browser): Promise<Page> {
-  const page = await browser.newPage({ viewport: { width: W, height: H }, ignoreHTTPSErrors: true });
+export function launch(): Promise<Browser> {
+  return chromium.launch({
+    executablePath: process.env.MODEL_CHROMIUM || undefined,
+    // WebGL without a GPU (CI, cloud containers): SwiftShader.
+    args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+  });
+}
+
+export async function openViewer(browser: Browser, width = W, height = H): Promise<Page> {
+  const page = await browser.newPage({ viewport: { width, height }, ignoreHTTPSErrors: true });
   page.on('pageerror', (e) => {
     // model-gate.ts throws on purpose so the game never starts on this page.
     if (!e.message.includes('[model]')) console.error('page error:', e.message);
@@ -100,18 +109,14 @@ async function sheet(browser: Browser, title: string, files: { label: string; fi
 }
 
 async function measure(page: Page, look: 'lambert' | 'toon'): Promise<ModelInfo> {
-  await page.evaluate((l) => (window as ModelWindow).__joudModel!.set({ look: l, ref: false, view: 'three-quarter', pose: 'flap' }), look);
+  await page.evaluate((l) => (window as ModelWindow).__joudModel!.set({ look: l, ref: false, view: 'three-quarter', pose: 'glide' }), look);
   await page.waitForTimeout(3000);
   return page.evaluate(() => (window as ModelWindow).__joudModel!.info());
 }
 
 export async function main(): Promise<number> {
   const server = startServer();
-  const browser = await chromium.launch({
-    executablePath: process.env.MODEL_CHROMIUM || undefined,
-    // WebGL without a GPU (CI, cloud containers): SwiftShader.
-    args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-  });
+  const browser = await launch();
   try {
     const page = await openViewer(browser);
     mkdirSync(resolve(OUT, 'toon'), { recursive: true });
