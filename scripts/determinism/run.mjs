@@ -3,11 +3,15 @@
 //   2. Node: the committed sim bundle replays every fixture
 //   3. Deno: the same bundle (what Supabase Edge Functions run)
 //   4. Chromium and WebKit (Playwright): the built check/ page
+//   5. Supabase Edge runtime: the deployed sim-selftest replays every fixture. Needs
+//      SUPABASE_STAGING_URL and SUPABASE_STAGING_ANON_KEY (e.g. in an untracked .env.staging);
+//      skipped without them.
 // Prints one table, runtime × runs passed. Exit code 1 if anything failed.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { edgeSelftest } from './edge-selftest.mjs';
 
 const TMP = resolve('.tmp/determinism');
 const rows = [];
@@ -82,6 +86,18 @@ if (deno.status !== 0) {
     console.log(out);
     row(`Deno ${ver}`, 0, 1, `exit ${d.status}`);
   }
+  // Edge Function handlers (issue-run, submit-run) with a fake database: every playable
+  // fixture verifies through submit-run, and every rejection path is covered.
+  const t = sh('deno', ['test', '--config', 'supabase/functions/deno.json', '--allow-read=.', 'supabase/functions'], { capture: true });
+  const tout = `${t.stdout}${t.stderr}`.replace(/\x1b\[[0-9;]*m/g, '');
+  const tm = tout.match(/(\d+) passed \| (\d+) failed/);
+  if (tm) {
+    for (const l of tout.split('\n')) if (/\.\.\. FAILED/.test(l)) console.log(l);
+    row(`Deno ${ver} (Edge Function tests)`, Number(tm[1]), Number(tm[1]) + Number(tm[2]), 'issue-run / submit-run, fake DB');
+  } else {
+    console.log(tout);
+    row('Deno (Edge Function tests)', 0, 1, `exit ${t.status}`);
+  }
 }
 
 // 4. Browsers.
@@ -105,6 +121,24 @@ if (!existsSync(resolve('node_modules/@playwright/test/package.json'))) {
       const engine = (r.userAgent.match(/(Chrome|Version)\/[\d.]+/) || [''])[0];
       row(`${project} ${engine}`.trim(), r.ok ? r.passed : Math.min(r.passed, r.total - 1), r.total, `check/ page, ${r.ms} ms`);
     }
+  }
+}
+
+// 5. Supabase Edge runtime (staging).
+if (existsSync(resolve('.env.staging'))) process.loadEnvFile(resolve('.env.staging'));
+const edgeUrl = process.env.SUPABASE_STAGING_URL;
+const edgeKey = process.env.SUPABASE_STAGING_ANON_KEY;
+if (!edgeUrl || !edgeKey) {
+  rows.push({ runtime: 'Supabase Edge (staging)', result: '-', status: 'SKIPPED', note: 'no SUPABASE_STAGING_URL / _ANON_KEY' });
+} else {
+  console.log('\n$ POST fixtures to sim-selftest (staging)');
+  try {
+    const r = await edgeSelftest(edgeUrl, edgeKey);
+    for (const l of r.failures) console.log(l);
+    const name = (r.runtime.match(/supabase-edge-runtime-[\d.]+/) || ['Supabase Edge'])[0];
+    row(name, r.ok ? r.passed : Math.min(r.passed, r.total - 1), r.total, 'sim-selftest on staging');
+  } catch (e) {
+    row('Supabase Edge (staging)', 0, 1, String(e?.message ?? e).slice(0, 60));
   }
 }
 
