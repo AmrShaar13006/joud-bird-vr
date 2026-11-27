@@ -9,11 +9,11 @@ export const PASSCODE_MAX = 12;
 
 const EMAIL = /^(20\d{2})\d{5}@yu\.edu\.sa$/;
 /** Direction marks and zero-width characters that sneak in when pasting in right-to-left text. */
-const INVISIBLE = /[​-‏‪-‮⁦-⁩﻿]/g;
+const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 
 /** Arabic-Indic (٠–٩) and Persian (۰–۹) digits become 0–9: Arabic keyboards type them. */
 export function toLatinDigits(s: string): string {
-  return s.replace(/[٠-٩۰-۹]/g, (d) => String((d.charCodeAt(0) & 0xf) % 10));
+  return s.replace(/[\u0660-\u0669\u06F0-\u06F9]/g, (d) => String((d.charCodeAt(0) & 0xf) % 10));
 }
 
 /** The form every email is checked and stored in: no spaces or marks, lower case, Latin digits. */
