@@ -105,12 +105,15 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
 
 ### Sound (`src/mobile/sound/`; VR keeps `src/scene/audio.ts`)
 
-- Synthesised with Web Audio: no audio files, no dependencies. Joud's rule: percussion and
-  effects only, no melody and no instruments.
-- `director.ts` maps a frame's `game.events` (plus the obstacle points gained) to sounds and
-  vibration: flap (a whoosh, ±3% pitch; the voice is a setting for future flap-sound items),
-  +1/+2 a pop (±3%), +3 tek-tek-doum, +5 a longer roll, flower a sparkle, hit a soft thump with a
-  tek roll, new best a drum flourish ending on a doum. The core never knows sound exists.
+- Synthesised with Web Audio: no audio files, no dependencies, no instruments. The sound world
+  is a garden: Joud's chirps, wing beats, glints, drums, and the score chime.
+- `director.ts` maps a frame's `game.events` (plus the obstacle points gained and the obstacles
+  passed) to sounds and vibration: flap two soft wing beats (±3% pitch; the voice is a setting
+  for future flap-sound items, and the first version's blip is one), +1 the chime, which climbs
+  a pentatonic scale with each point of a run as in the first version (Joud approved the climb),
+  +2 the chime with glints, +3 with Joud's "twee-tweet", +5 with a trill, flower a bud opening,
+  hit a soft thump with a startled chirp, new best a run of chirps, a trill and a doum. The core
+  never knows sound exists.
 - Vibration (Android only) on hit, new best and +5. Never on flap.
 - Two switches, «المؤثرات» (effects and vibration) and «الإيقاع» (percussion layer), in
   `localStorage`. An old `muted = 1` turns both off; `?mute=1` starts both off.
@@ -121,8 +124,8 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
   (`voices.ts`). `npm run sound:samples` renders every sound and the 20-second percussion preview
   to `.tmp/sound/*.wav` and prints peak and loudest-50-ms levels (`SOUND_CHROMIUM` picks a
   Chromium binary).
-- The percussion layer (`percussion.ts`: frame drum from score 10, maqsum darbuka from 25, 96 BPM)
-  is only in the debug sampler for now: `?debug=1&sounds=1` shows a button per sound.
+- The percussion layer (`percussion.ts`: a breeze, then frame drum and far-off birds from score
+  10, maqsum darbuka from 25, 96 BPM) is only in the debug sampler for now: `?debug=1&sounds=1` shows a button per sound.
 - `check:mobile` keeps the eager sound code at most 4 kB gzip and the percussion layer and the
   sampler out of the first load.
 
