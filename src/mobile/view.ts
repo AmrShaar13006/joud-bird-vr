@@ -3,46 +3,101 @@
 // Lambert/Basic materials, no shadows or post-processing.
 
 import {
-  BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
   Color,
   DirectionalLight,
   DynamicDrawUsage,
   Float32BufferAttribute,
   Group,
   HemisphereLight,
+  InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
-  MeshLambertMaterial,
   OrthographicCamera,
   PlaneGeometry,
   Scene,
+  SRGBColorSpace,
   Vector3,
   type WebGLRenderer,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Config } from '../core/config';
 import type { Game } from '../core/game';
+import type { ObstacleKind, PointsTable } from '../core/ruleset';
 import { Bird } from '../scene/bird';
 import { BRAND, buildFlowerStrip } from '../scene/scenery';
+import {
+  buildFacade,
+  buildPlazaRow,
+  FAR_PARALLAX,
+  FAR_TILE_M,
+  FAR_METRE,
+  layerOffset,
+  NEAR_METRE,
+  NEAR_PARALLAX,
+  NEAR_TILE_M,
+} from './backdrop';
+import { ScoreBurst } from '../scene/burst';
+import { boxTile, type Column, drawBoxAtlas, tileRect, wordColumn } from './box-art';
+import { badgeKey, badgeRect, type Cue, cueFor, drawBadgeAtlas, SPARKLE_TILE } from './cues';
 
 export interface ViewOptions {
   /** Load joud.glb (false: the code-built placeholder bird). */
   model: boolean;
   glbUrl: string;
-  /** Decorative effects (flower spin, updraft motion). */
+  /** Decorative effects (flower spin, updraft motion, backdrop parallax). */
   fx: boolean;
-  /** Flower strip under the lane. */
+  /** Flower strip under the lane and the near backdrop layer. */
   scenery: boolean;
+  /** Box-face atlas resolution: 1 (default), or 0.5 on the low tier. */
+  atlasScale?: number;
+  /** The ruleset's points table: badges show exactly what a gap pays. */
+  points: Readonly<PointsTable>;
 }
 
 const BOX_H = 0.06;
 const BOX_SEAM = 0.004;
-const BOX_DEPTH = 0.04;
 const MAX_BOXES = 640;
-const BOX_COLORS = [new Color(BRAND.butter), new Color(BRAND.deepGreen), new Color(BRAND.redOrange)];
+
+const MAX_BADGES = 24;
+const BADGE_SIZE = 0.068;
+const LIP_SPARKLE = 0.034;
+/** VR burst sizes are for a 2.8 m window; the phone lane is 1.0 wide. */
+const BURST_SCALE = 0.6;
+
+/**
+ * Flat, unlit material showing one atlas tile per instance: `aTile` = (u0, v0, width, height)
+ * replaces the plane's 0–1 UVs. Exact brand colours, one draw call per mesh. `alphaTest`
+ * gives round cut-outs without blending.
+ */
+function atlasMaterial(canvas: HTMLCanvasElement, alphaTest = 0): MeshBasicMaterial {
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  tex.anisotropy = 2;
+  const mat = new MeshBasicMaterial({ map: tex, alphaTest });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', 'attribute vec4 aTile;\nvoid main() {')
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvMapUv = aTile.xy + uv * aTile.zw;');
+  };
+  return mat;
+}
+
+/** Instanced unit planes with a per-instance atlas tile. */
+function tiledPlanes(material: MeshBasicMaterial, max: number): { mesh: InstancedMesh; tiles: InstancedBufferAttribute } {
+  const geo = new PlaneGeometry(1, 1);
+  const tiles = new InstancedBufferAttribute(new Float32Array(max * 4), 4);
+  tiles.setUsage(DynamicDrawUsage);
+  geo.setAttribute('aTile', tiles);
+  const mesh = new InstancedMesh(geo, material, max);
+  mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+  mesh.frustumCulled = false;
+  mesh.count = 0;
+  return { mesh, tiles };
+}
 /** Ground and flowers visible under the lane. */
 const GROUND_MARGIN = 0.22;
 /** The Bird model's body radius is ≈ 0.12 at its own scale. */
@@ -97,13 +152,28 @@ export class MobileView {
   readonly bird: Bird;
   private readonly birdHolder = new Group();
   private readonly boxes: InstancedMesh;
+  /** Per-box atlas tile rectangle (u0, v0, width, height). */
+  private readonly boxTiles: InstancedBufferAttribute;
+  private readonly badges: InstancedMesh;
+  private readonly badgeRects: InstancedBufferAttribute;
+  /** Badge-atlas tile per obstacle kind (no entry: no badge). Looked up per frame, no allocation. */
+  private readonly kindTile = new Map<ObstacleKind, number>();
+  private badgeCount = 0;
+  private readonly burst: ScoreBurst;
+  private readonly burstHolder = new Group();
   private readonly stripes: InstancedMesh;
   private readonly flowers: InstancedMesh;
   private readonly m = new Matrix4();
+  /** Scratch tile rectangle (no allocation per frame). */
+  private readonly rect: [number, number, number, number] = [0, 0, 0, 0];
   private readonly tmpScale = new Vector3();
   private cfg: Readonly<Config>;
   private fx: boolean;
   private strip: Mesh | null = null;
+  private readonly facade: Mesh;
+  private readonly plaza: Mesh;
+  /** Backdrop scroll distance (lane units); render-only. */
+  private scroll = 0;
   private glbWanted: boolean;
 
   // Interpolation: state before the last fixed step.
@@ -125,6 +195,17 @@ export class MobileView {
     sky.position.z = -2;
     s.add(sky);
 
+    // The event plaza (src/mobile/backdrop.ts): façade far back, booths and palms nearer.
+    const layerMat = new MeshBasicMaterial({ vertexColors: true });
+    this.facade = new Mesh(buildFacade(), layerMat);
+    this.facade.scale.set(FAR_METRE, FAR_METRE, 1);
+    this.facade.position.set(0, -cfg.laneH / 2, -1.9);
+    this.plaza = new Mesh(buildPlazaRow(), layerMat);
+    this.plaza.scale.set(NEAR_METRE, NEAR_METRE, 1);
+    this.plaza.position.set(0, -cfg.laneH / 2, -1.7);
+    this.plaza.visible = opts.scenery;
+    s.add(this.facade, this.plaza);
+
     const ground = new Mesh(new PlaneGeometry(8, 3), new MeshBasicMaterial({ color: BRAND.leafGreen }));
     ground.position.set(0, -cfg.laneH / 2 - 1.5, -1.5);
     s.add(ground);
@@ -140,17 +221,41 @@ export class MobileView {
       s.add(strip);
     }
 
-    // Lights for the Lambert boxes and bird.
+    // Lights for the Lambert bird.
     s.add(new HemisphereLight('#ffffff', '#88aa77', 2.2));
     const sun = new DirectionalLight('#ffffff', 1.4);
     sun.position.set(-1, 2, 3);
     s.add(sun);
 
-    this.boxes = new InstancedMesh(new BoxGeometry(1, 1, 1), new MeshLambertMaterial(), MAX_BOXES);
-    this.boxes.instanceMatrix.setUsage(DynamicDrawUsage);
-    this.boxes.setColorAt(0, BOX_COLORS[0]);
-    this.boxes.frustumCulled = false;
+    // Campaign boxes: front faces only (the ortho camera never sees their sides).
+    const boxes = tiledPlanes(atlasMaterial(drawBoxAtlas(opts.atlasScale ?? 1)), MAX_BOXES);
+    this.boxes = boxes.mesh;
+    this.boxTiles = boxes.tiles;
     s.add(this.boxes);
+
+    // Cues: one badge per gap that pays more than a gate (src/mobile/cues.ts). Gameplay
+    // information, so they stay on with effects off and on every tier.
+    const kinds = ['stairs', 'updraft', 'narrow', 'moving', 'fork'] as const;
+    const cues = kinds.map((kind) => cueFor({ kind }, opts.points)).filter((c): c is Cue => c !== null);
+    const badgeAtlas = drawBadgeAtlas(cues);
+    kinds.forEach((kind) => {
+      const c = cueFor({ kind }, opts.points);
+      const tile = c ? badgeAtlas.tiles.get(badgeKey(c)) : undefined;
+      if (tile !== undefined) this.kindTile.set(kind, tile);
+    });
+    const badges = tiledPlanes(atlasMaterial(badgeAtlas.canvas, 0.5), MAX_BADGES);
+    this.badges = badges.mesh;
+    this.badgeRects = badges.tiles;
+    this.badges.position.z = 0.1;
+    s.add(this.badges);
+
+    // Score juice: the VR petal/sparkle burst, scaled to the phone lane (effects only).
+    this.burst = new ScoreBurst(0);
+    this.burstHolder.scale.setScalar(BURST_SCALE);
+    this.burstHolder.position.z = 0.6;
+    this.burstHolder.visible = opts.fx;
+    this.burstHolder.add(this.burst.mesh);
+    s.add(this.burstHolder);
 
     const stripeColor = new Color(BRAND.butter).lerp(new Color('#ffffff'), 0.35);
     this.stripes = new InstancedMesh(
@@ -192,10 +297,12 @@ export class MobileView {
 
   setEffects(on: boolean): void {
     this.fx = on;
+    this.burstHolder.visible = on;
   }
 
   setScenery(on: boolean): void {
     if (this.strip) this.strip.visible = on;
+    this.plaza.visible = on;
   }
 
   /** joud.glb (if loaded) or the code-built placeholder. Glasses and legs stay. */
@@ -263,24 +370,53 @@ export class MobileView {
 
   private boxCount = 0;
 
-  private pushBox(x: number, y: number, w: number, h: number, colorIndex: number): void {
+  private pushBox(x: number, y: number, w: number, h: number, tile: number, keepTop: boolean): void {
     if (this.boxCount >= MAX_BOXES || h <= 0) return;
-    this.m.makeScale(w, h, BOX_DEPTH);
+    this.m.makeScale(w, h, 1);
     this.m.setPosition(x, y, 0);
     this.boxes.setMatrixAt(this.boxCount, this.m);
-    this.boxes.setColorAt(this.boxCount, BOX_COLORS[colorIndex % BOX_COLORS.length]);
+    // A box cut short shows part of its face, never a squashed one.
+    const r = tileRect(tile, h / (BOX_H - BOX_SEAM), keepTop, 4, this.rect);
+    this.boxTiles.setXYZW(this.boxCount, r[0], r[1], r[2], r[3]);
     this.boxCount++;
   }
 
-  /** Stack campaign boxes from `from` towards `to` (either direction), clipped at `to`. */
-  private stack(x: number, w: number, from: number, to: number, seed: number): void {
+  private pushBadge(x: number, y: number, size: number, tile: number): void {
+    if (this.badgeCount >= MAX_BADGES) return;
+    this.m.makeScale(size, size, 1);
+    this.m.setPosition(x, y, 0);
+    this.badges.setMatrixAt(this.badgeCount, this.m);
+    const r = badgeRect(tile, this.rect);
+    this.badgeRects.setXYZW(this.badgeCount, r[0], r[1], r[2], r[3]);
+    this.badgeCount++;
+  }
+
+  // ---------- score juice (effects only) ----------
+
+  /** Burst at the bird when obstacle points land; a second one for 3 points or more. */
+  onScore(game: Game, points: number): void {
+    if (!this.fx) return;
+    const x = game.cfg.birdX / BURST_SCALE;
+    const y = game.bird.y / BURST_SCALE;
+    this.burst.spawn(x, y);
+    if (points >= 3) this.burst.spawn(x, y);
+  }
+
+  /** Burst where the flower was picked up (at the bird). */
+  onFlower(game: Game): void {
+    if (this.fx) this.burst.spawn(game.cfg.birdX / BURST_SCALE, game.bird.y / BURST_SCALE);
+  }
+
+  /** Stack campaign boxes from the gap edge `from` towards `to` (either direction), clipped at `to`. */
+  private stack(x: number, w: number, from: number, to: number, slot: number, column: Column): void {
     const dir = to > from ? 1 : -1;
     const len = Math.abs(to - from);
     let k = 0;
     for (let d = 0; d < len; d += BOX_H) {
       const h = Math.min(BOX_H, len - d) - BOX_SEAM;
       const yc = from + dir * (d + (h + BOX_SEAM) / 2);
-      this.pushBox(x, yc, w, h, seed + k);
+      // Stacking up, a cut box keeps its bottom (it runs on past the cut); stacking down, its top.
+      this.pushBox(x, yc, w, h, boxTile(slot, k, column), dir < 0);
       k++;
     }
   }
@@ -301,6 +437,15 @@ export class MobileView {
     const y = this.lerp(this.prevBirdY, game.bird.y, t, 0.5) + (idle ? Math.sin(time * 3) * 0.012 : 0);
     this.bird.root.position.set(0, 0, 0);
     this.birdHolder.position.set(cfg.birdX, y, 0.5);
+
+    // Backdrop parallax: moves with the obstacles while playing, drifts on the home and ready
+    // screens, holds still when paused or over. Static with effects off.
+    if (this.fx) {
+      const v = game.state === 'playing' ? game.speed : idle ? 0.06 : 0;
+      this.scroll += v * dt;
+    }
+    this.facade.position.x = layerOffset(this.scroll, FAR_PARALLAX, FAR_TILE_M * FAR_METRE);
+    this.plaza.position.x = layerOffset(this.scroll, NEAR_PARALLAX, NEAR_TILE_M * NEAR_METRE);
 
     // Obstacles.
     this.boxCount = 0;
@@ -325,10 +470,10 @@ export class MobileView {
           lowerY = g2;
           lower = o.gap2;
         }
-        this.stack(x, cfg.pipeWidth, lowerY + lower / 2, upperY - upper / 2, i * 2 + 1);
+        this.stack(x, cfg.pipeWidth, lowerY + lower / 2, upperY - upper / 2, i, 'middle');
       }
-      this.stack(x, cfg.pipeWidth, upperY + upper / 2, top, i * 2);
-      this.stack(x, cfg.pipeWidth, lowerY - lower / 2, -top, i * 2 + 1);
+      this.stack(x, cfg.pipeWidth, upperY + upper / 2, top, i, 'upper');
+      this.stack(x, cfg.pipeWidth, lowerY - lower / 2, -top, i, 'lower');
 
       // Capacities are constants: .count is lowered every frame to what is drawn.
       if (o.updraft > 0 && stripes + STRIPES_PER_UPDRAFT <= MAX_STRIPES) {
@@ -353,10 +498,31 @@ export class MobileView {
         this.m.setPosition(x, fy, 0);
         this.flowers.setMatrixAt(flowers++, this.m);
       }
+
+      // Cue badge on a box next to the marked gap, until the obstacle is passed: on the side
+      // without the words, and for a fork's risky gap on the middle block.
+      const tile = this.kindTile.get(o.kind);
+      if (tile !== undefined && !o.scored) {
+        const risky = o.kind === 'fork' && o.gap2 > 0;
+        const gy = risky ? this.lerp(this.prevGap2Y[i], o.gap2Y, t, 0.2) : gapY;
+        const gh = risky ? o.gap2 : o.gap;
+        const above = risky ? gy < gapY : wordColumn(i) === 'lower';
+        this.pushBadge(x, above ? gy + gh / 2 + BOX_H / 2 : gy - gh / 2 - BOX_H / 2, BADGE_SIZE, tile);
+        if (risky) {
+          // Two sparkles at the lips the bird flies into (obstacles move towards +x).
+          this.pushBadge(x + half, gy + gh / 2, LIP_SPARKLE, SPARKLE_TILE);
+          this.pushBadge(x + half, gy - gh / 2, LIP_SPARKLE, SPARKLE_TILE);
+        }
+      }
     }
+    this.badges.count = this.badgeCount;
+    this.badges.instanceMatrix.needsUpdate = true;
+    this.badgeRects.needsUpdate = true;
+    this.badgeCount = 0;
+    this.burst.update(dt);
     this.boxes.count = this.boxCount;
     this.boxes.instanceMatrix.needsUpdate = true;
-    if (this.boxes.instanceColor) this.boxes.instanceColor.needsUpdate = true;
+    this.boxTiles.needsUpdate = true;
     this.stripes.count = stripes;
     this.stripes.instanceMatrix.needsUpdate = true;
     this.flowers.count = flowers;

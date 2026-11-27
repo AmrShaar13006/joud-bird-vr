@@ -51,6 +51,8 @@ const game = new Game(RULESET.modes[mode], {
   best: loadBest(mode),
 });
 const bus = new InputBus();
+// ?debug=1 only: the game on window.__joudGame, read by screenshot scripts (e.g. wait for a fork).
+if (url.flags.debug) (window as unknown as { __joudGame?: Game }).__joudGame = game;
 const sfx = new Sfx(url.flags.mute || store.get('muted') === '1');
 
 // ---------- view ----------
@@ -107,6 +109,8 @@ const view = new MobileView(game.cfg, {
   glbUrl: new URL('../models/joud.glb', window.location.href).href,
   fx: url.flags.fx && startTier.effects,
   scenery: startTier.scenery,
+  atlasScale: tier === 'low' ? 0.5 : 1,
+  points: RULESET.points,
 });
 
 /** Apply a tier's settings (antialias stays as created: a context can't change it). */
@@ -118,7 +122,10 @@ function applyTier(t: Tier): void {
   view.setBirdDetail(url.flags.model === 'joud' && s.birdGlb);
   resize();
 }
-game.beforeStep = () => view.snapshot(game);
+game.beforeStep = () => {
+  view.snapshot(game);
+  if (autoplay) autopilotTick();
+};
 
 function resize(): void {
   const w = ui.frame.clientWidth;
@@ -195,6 +202,29 @@ for (const type of ['contextmenu', 'dblclick', 'gesturestart', 'selectstart'] as
 }
 document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 
+// ---------- debug autoplay (screenshots only) ----------
+// ?debug=1&autoplay=1: the core's autopilot flies practice rounds. Never ranked, never
+// logged: it forces practice and only exists behind the debug flag.
+const autoplay = url.flags.debug && new URLSearchParams(window.location.search).get('autoplay') === '1';
+let botWantsFlap: ((g: Game) => boolean) | null = null;
+if (autoplay) {
+  practice = true;
+  void import('../core/bot').then((m) => {
+    botWantsFlap = (g) => m.botWantsFlap(g);
+  });
+}
+/** Once per frame: start and restart rounds through the bus, like a player. */
+function autopilot(): void {
+  if (!botWantsFlap) return;
+  if (game.state === 'attract') bus.push('start');
+  else if (game.state === 'gameOver' && game.stateTime > 2) bus.push('restart');
+  else if (game.state === 'ready') bus.push('flap');
+}
+/** Once per fixed step (from game.beforeStep), so it flies at any frame rate. */
+function autopilotTick(): void {
+  if (botWantsFlap && game.state === 'playing' && botWantsFlap(game)) game.handle('flap');
+}
+
 // ---------- lifecycle ----------
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) game.suspend();
@@ -223,6 +253,7 @@ function frame(now: number): void {
   const landscape = phoneLandscape();
   if (landscape) game.suspend();
 
+  if (autoplay) autopilot();
   bus.drain(handle);
   game.advance(dt);
 
@@ -245,11 +276,13 @@ function frame(now: number): void {
       case 'score': {
         const d = game.obstaclePoints - lastPoints;
         ui.showPop(`+${d}`);
+        view.onScore(game, d);
         sfx.score(game.field.passed);
         break;
       }
       case 'flower':
         ui.showPop(`+${game.flowers - lastFlowers} ✿`);
+        view.onFlower(game);
         sfx.score(game.field.passed + 2);
         break;
       case 'hit':
