@@ -6,9 +6,17 @@ Run from the repo root (Blender 4.2 LTS or newer, tested on 5.3):
     blender -b -P tools/blender/build_joud.py -- --no-blend      # skip saving the .blend
     blender -b -P tools/blender/build_joud.py -- --with-lenses   # also export see-through lenses
 
+Options for trying other numbers (they change what is written, so build again without them):
+    --wing-scale=1.0                    the wing at the poster's full length (built 10 % shorter)
+    --fold=elev=-60,twist=-10           other numbers for the folded pose (joud_clips.FOLD)
+    --tune-fold                         search for a folded pose and print it
+    --shade=fan.top=22:-40,wing.weight=0.7   other painted shading directions for the wing (SHADE)
+
 Writes
     public/models/joud-v2.glb    one skinned mesh, one material, 1024 webp atlas, armature,
-                                 socket nodes, and the rest_folded pose in the armature's extras
+                                 socket nodes, the five animation clips (idle, flap, glide, fall,
+                                 crash) and the rest_folded pose in the armature's extras.
+                                 Building again writes the same bytes (checked on Blender 5.3).
     tools/blender/joud-v2.blend  the same model with every part as its own object (if < 5 MB)
 
 Where things come from
@@ -17,6 +25,9 @@ Where things come from
                                               flowers, buttons and emblem, projected from the art
     docs/references/joud_ref_flying_poster_crop.png  wing length and the spread pose
     docs/references/joud_ref_slim_side.png    legs, toes and the small tail (side view)
+    tools/blender/flap_proto.py               Amr's prototype: the wing's roll, chord and thickness
+                                              (reshape_wings) and the flap's numbers (pose_B)
+    tools/blender/joud_clips.py               the folded pose and the clips, as numbers
 
 Axes: Blender is Z up and Joud faces -Y; +X is Joud's left. The glTF file is Y up and Joud
 faces +Z (the exporter converts). One model unit = the old joud.glb's unit: the body is about
@@ -25,7 +36,8 @@ faces +Z (the exporter converts). One model unit = the old joud.glb's unit: the 
 Assumptions, for Joud's approval (no reference shows these): the plain back of the vest and the
 collar going round the neck; the small three-feather tail; the armhole trim as a ring round the
 wing's root; the folded wing's length and hang (the poster's long wing reaches lower than the
-round front art's); the lens tint painted on the face instead of see-through lenses.
+round front art's, so the wing is built 10 % shorter than the poster's); the lens tint painted
+on the face instead of see-through lenses.
 
 The script only uses Blender's bundled Python (bpy, bmesh, mathutils, numpy). Nothing it needs
 is installed into the game: Blender is a build tool, not a dependency of the web app.
@@ -45,6 +57,10 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Quaternion, Vector
 
+sys.dont_write_bytecode = True  # no tools/blender/__pycache__
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import joud_clips  # noqa: E402  (the folded pose and the animation clips, next to this file)
+
 # ----------------------------------------------------------------------------------------------
 # paths and options
 # ----------------------------------------------------------------------------------------------
@@ -60,6 +76,7 @@ OUT_ATLAS_PREVIEW = os.path.join(HERE, 'joud-v2-atlas.png')  # not committed (gi
 ARGS = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 SAVE_BLEND = '--no-blend' not in ARGS
 WITH_LENSES = '--with-lenses' in ARGS
+TUNE_FOLD = '--tune-fold' in ARGS  # search for a better folded pose and print its numbers
 
 ATLAS = 1024
 SIZE_LIMIT_KB = 600
@@ -549,83 +566,245 @@ def build_collar(m: dict, coll) -> bpy.types.Object:
 
 
 # --- wings -------------------------------------------------------------------------------------
-# Long and slender like the flying poster, held straight out to the sides in the bind pose.
-# The wing's broad face looks forward (the frontal plane), as in both the front art (wings
-# hanging at the sides) and the poster (wings raised): flapping turns it within that plane.
-# Leading edge = top in the bind pose = the outer edge when folded: the green line runs there.
+# v2.1: rebuilt from Amr's prototype (tools/blender/flap_proto.py, reshape_wings()).
+# v2.0's wing was a plank in the frontal plane (broad face forwards), so a flap turned it like a
+# windscreen wiper. The prototype rolls that plank 65 degrees about the wing's long axis - the
+# model's X axis for BOTH wings, so the green top edge becomes the leading edge (-Y, forwards) on
+# the left and on the right - then widens the chord 2.1x at the root to 1.35x at the tip and
+# thins it to 0.7x. proto_section() gives that section's chord, thickness and incidence. On top
+# of it this build adds a slight camber (curved top, flat underside), a root narrow enough for
+# the vest's armhole, a rounded end, a row of rounded secondary feathers along the trailing edge
+# and a soft fan of tip feathers that a bone of its own (wing_fan) closes and spreads.
+# Wing space: +X along the wing from the shoulder joint, +Y back (the trailing edge), +Z up.
+# The right wing is the left one mirrored in X only, so both leading edges face -Y.
 
 SHOULDER_PX = 190.0  # the green line starts at the collar's corner (art)
 WING_SHOULDER_X = 0.40           # inside the body: the root is hidden under the vest
-# Poster: the wing reaches about 1.4 from the shoulder joint and is about 0.28 wide (measured
-# against the body, half-width 0.6), so it is long and slender next to v1's stubby wings.
-WING_LEN = 1.08                  # cream part, from the shoulder joint
-FEATHER_BASE = 0.98              # feathers start here (overlapping the cream end)
-FEATHER_LENS = [0.26, 0.30, 0.33, 0.30, 0.26]
-FEATHER_FAN_DEG = [-34, -17, 0, 17, 34]
-WING_BONES = [0.0, 0.42, 0.90, 1.40]   # shoulder, mid, tip joints along the wing (+ tip end)
+# Poster: the wing reaches about 1.3 from the shoulder joint; the round front art's folded wing
+# only about 1.0. At the poster's length the tucked wing either hangs to the feet or needs a 31
+# degree kink at the mid joint to bring its tip up beside the lower belly, so the wing is built
+# 10 % shorter along its length instead (Amr, 27 Nov: shorten by up to 10 % rather than bend the
+# joints further). `--wing-scale=1.0` builds the full length for comparison.
+WING_SCALE = float(next((a.split('=')[1] for a in ARGS if a.startswith('--wing-scale=')), 0.9))
+WING_LEN = 1.00                  # the cream part's end, from the shoulder joint (before WING_SCALE)
+FAN_PIVOT = 0.84                 # the rounded end starts here; the tip fan turns about this point
+WING_BONES = [0.0, 0.42, 0.84, 1.30]   # shoulder, mid, tip joints along the wing (+ tip end)
+ROLL_DEG, CHORD_ROOT, CHORD_TIP, THIN = 65.0, 2.1, 1.35, 0.7   # flap_proto.py, reshape_wings()
+CAMBER = 0.06                    # height of the mean line at mid chord, as a part of the chord
+BLADE = 0.70                     # the cream blade covers this much of the chord, from the leading edge;
+                                 # the secondaries make up the rest
+SEC_COUNT = 7                    # secondary feathers along the trailing edge
+FAN_DEG = [-34, -20.4, -6.8, 6.8, 20.4, 34]    # tip feathers, from the leading side to the trailing
+FAN_VISIBLE = [0.24, 0.28, 0.30, 0.30, 0.28, 0.24]  # how far each reaches past the cream end
+FEATHER_ROUND = [(0.0, 0.50), (0.30, 0.82), (0.58, 1.0), (0.80, 0.92), (0.93, 0.66), (0.985, 0.34)]  # (along, width)
+SEC_ROUND = [(0.0, 0.60), (0.45, 0.96), (0.75, 1.0), (0.93, 0.62)]
+RIGID_S: dict[str, list[float]] = {}  # object name -> per vertex, the station its feather is rooted at
 
 
 def wing_frame(side: int) -> Matrix:
-    """Wing space -> model space. Wing space: +X along the wing, +Z leading edge, +Y back."""
+    """Wing space -> model space."""
     z = (CY - SHOULDER_PX) * S
     mat = Matrix.Translation((side * WING_SHOULDER_X, 0, z))
-    if side < 0:
-        mat = mat @ Matrix.Scale(-1, 4, (1, 0, 0))
-    return mat
+    return mat @ Matrix.Diagonal((side * WING_SCALE, 1, 1, 1))
 
 
-def build_wing(side: int, coll) -> tuple[bpy.types.Object, bpy.types.Object]:
+def proto_section(s: float) -> tuple[float, float, float]:
+    """(half chord, half thickness, incidence in radians: leading edge up) of the prototype's
+    wing at station s: v2.0's plank (half-chord c, vertical; half-thickness t) rolled ROLL_DEG
+    about the wing's long axis, then scaled CHORD_ROOT..CHORD_TIP front to back and THIN up-down,
+    exactly as reshape_wings() does. An ellipse stays an ellipse: these are its axes."""
+    c = float(np.interp(s, [-0.1, 0.0, 0.25, 0.6, 0.9, 1.08], [0.085, 0.11, 0.128, 0.136, 0.14, 0.134]))
+    t = float(np.interp(s, [-0.1, 0.4, 1.08], [0.052, 0.046, 0.034]))
+    f = CHORD_ROOT + (CHORD_TIP - CHORD_ROOT) * min(1.0, max(0.0, s / 1.4))
+    cr, sr = math.cos(math.radians(ROLL_DEG)), math.sin(math.radians(ROLL_DEG))
+    m = np.array([[f * cr * t, -f * sr * c], [THIN * sr * t, THIN * cr * c]])  # (y, z) of the two axes
+    u, sv, _vt = np.linalg.svd(m)
+    major = u[:, 0] if u[0, 0] < 0 else -u[:, 0]  # towards the leading edge (-Y)
+    return float(sv[0]), float(sv[1]), math.atan2(major[1], -major[0])
+
+
+def wing_section(s: float) -> dict:
+    """The wing's cross-section at station s (wing space, before WING_SCALE): 'a' is half the
+    whole chord (blade and secondaries), centred on (y, z); 'blade_a' and 'blade_y' the same for
+    the cream blade alone, which shares the leading edge."""
+    sp = min(s, FAN_PIVOT)
+    a_p, b_p, inc = proto_section(max(sp, 0.0))
+    r = float(smoothstep(-0.06, 0.24, sp))  # the root is narrower (it enters the vest's armhole)
+    a = 0.105 + (a_p - 0.105) * r
+    top = 0.050 + (1.28 * b_p - 0.050) * r    # curved top ...
+    bot = 0.050 + (0.72 * b_p - 0.050) * r    # ... flatter underside; top + bot = the prototype's thickness
+    out = max(0.0, sp) / WING_LEN
+    y = 0.2 * a * r + 0.05 * out * out        # the bones run nearer the leading edge; tip swept back a little
+    cover = 1.0 + (BLADE - 1.0) * float(smoothstep(0.02, 0.20, sp))  # the root is all blade
+    sec = {
+        'a': a, 'y': y, 'z': -0.012 * out * out, 'inc': inc, 'top': top, 'bot': bot,
+        'blade_a': a * cover, 'blade_y': y - a * (1 - cover) * math.cos(inc),
+        'blade_z': -0.012 * out * out + a * (1 - cover) * math.sin(inc),
+    }
+    sec['camber'] = CAMBER * 2 * sec['blade_a'] * r
+    if s > FAN_PIVOT:  # the rounded end: half an ellipse centred on the fan's pivot
+        e = min(0.999, (s - FAN_PIVOT) / (WING_LEN - FAN_PIVOT))
+        k = math.sqrt(1 - e * e)
+        sec.update(blade_a=sec['blade_a'] * k, top=top * k ** 0.6, bot=bot * k ** 0.6, camber=sec['camber'] * k * k)
+    return sec
+
+
+def section_axes(inc: float) -> tuple[Vector, Vector]:
+    """(towards the trailing edge, the top surface's normal) for a section tilted by inc."""
+    return Vector((0, math.cos(inc), -math.sin(inc))), Vector((0, math.sin(inc), math.cos(inc)))
+
+
+def feather_bm(origin: Vector, along: Vector, across: Vector, normal: Vector, length: float,
+               half_width: float, half_thick: float, profile: list[tuple[float, float]],
+               sides: int, roll_deg: float = 0.0) -> bmesh.types.BMesh:
+    """One soft, round-ended feather: a flat closed shell from origin along `along`. `across` and
+    `normal` span its cross-section; roll_deg tips it about its length so neighbours overlap like
+    shingles. Param UV: u along, v around (0 = one edge, 0.25 = the top's centre line)."""
+    rr = math.radians(roll_deg)
+    w = across * math.cos(rr) + normal * math.sin(rr)
+    nrm = normal * math.cos(rr) - across * math.sin(rr)
+    rings, us = [], []
+    for u, wf in profile:
+        p = origin + along * (u * length)
+        th = half_thick * (1 - 0.5 * u)
+        rings.append([p + w * (half_width * wf * math.cos(2 * math.pi * j / sides))
+                      + nrm * (th * math.sin(2 * math.pi * j / sides)) for j in range(sides)])
+        us.append(u)
+    bm = grid_bmesh(rings, us, origin - along * 0.01, origin + along * length)
+    for e in bm.edges:  # the rim is a sharp edge: each face then shades flat, like a feather, not a tube
+        if all(abs((v.co - origin).dot(nrm)) < 1e-6 for v in e.verts):
+            e.smooth = False
+    return bm
+
+
+# Shading normals of the wing. Each face starts from a painted direction instead of its own
+# normal: (lean, span) in degrees, lean from straight up towards the leading edge, span towards
+# the wing's tip (negative: towards its root); `weight` mixes it with the face's own normal
+# (1 = the painted direction alone). One pair for the faces of the top, one for the underside
+# ('under' at the root, 'under_tip' at the blade's end where it differs).
+# The numbers come from a search over every clip's key poses as the game shows them (the bird
+# turned -55 degrees and tilted with its speed, the game's sky and sun) and from the front: the
+# light on each visible face, kept as high and as even as one direction per face allows.
+SHADE = {
+    'wing': {'top': (45.0, -15.0), 'under': (65.0, 10.0), 'under_tip': (85.0, 10.0), 'weight': 0.85},  # blade, secondaries
+    'fan': {'top': (30.0, -30.0), 'under': (60.0, 10.0), 'weight': 1.0},
+}
+for _arg in ARGS:  # --shade=fan.top=22:-40,wing.weight=0.7 : try other numbers
+    if _arg.startswith('--shade='):
+        for _kv in _arg[8:].split(','):
+            _key, _val = _kv.split('=')
+            _part, _what = _key.split('.')
+            SHADE[_part][_what] = float(_val) if _what == 'weight' else tuple(float(v) for v in _val.split(':'))
+
+
+def card_normals(obj: bpy.types.Object, side: int, shade: dict) -> None:
+    """Paint the wing's shading normals so it reads as flat colour, as in the art: cream on both
+    faces, with the peach tip fan staying peach.
+
+    The game lights Joud with a white sky over a green ground and one sun, and no fill. With
+    true normals every underside turned dark olive, so a flap strobed cream and olive, and the
+    peach fan went brown whenever it was seen from below. So each face starts from a painted
+    direction (SHADE): the top from one that leans a little forwards, the underside from one
+    that leans further forwards - not downwards. The camera and the sun are always in front of
+    Joud, and "forwards" does not change when the wing is raised, lowered or folded, so the
+    colour holds through a flap. The wing still moves with its bones and the normals turn with
+    it, so a raised wing is a little darker underneath than a level one; it just starts from a
+    kinder direction. Round the blade's edges the two directions blend. The price: seen from
+    behind, the wing is darker than the body."""
+    me = obj.data
+
+    def painted(pair: tuple[float, float]) -> Vector:
+        le, sp = math.radians(pair[0]), math.radians(pair[1])
+        return Vector((math.sin(sp) * side, -math.sin(le) * math.cos(sp), math.cos(le) * math.cos(sp)))
+
+    top, under = painted(shade['top']), painted(shade['under'])
+    under_tip = painted(shade.get('under_tip', shade['under']))
+    weight = shade['weight']
+    out = []
+    for loop, cn in zip(me.loops, me.corner_normals):
+        n = Vector(cn.vector)
+        s = ((me.vertices[loop.vertex_index].co.x * side) - WING_SHOULDER_X) / WING_SCALE
+        s = min(max(s, 0.0), FAN_PIVOT)
+        up = section_axes(wing_section(s)['inc'])[1]
+        d = n.dot(up)
+        k = float(smoothstep(-0.35, 0.35, d))      # 0 on the underside, 1 on the top
+        if d < 0:
+            n = n - 2 * d * up                     # the underside's own normal, mirrored to look up
+        below = under.lerp(under_tip, s / FAN_PIVOT)
+        towards = (below * (1 - k) + top * k).normalized()
+        out.append(tuple((n * (1 - weight) + towards * weight).normalized()))
+    me.normals_split_custom_set(out)
+
+
+def build_wing(side: int, coll) -> tuple[bpy.types.Object, bpy.types.Object, bpy.types.Object]:
     name = 'L' if side > 0 else 'R'
     mat = wing_frame(side)
-    ss = list(np.linspace(-0.10, WING_LEN, 15))
-    n = 14
 
-    def chord(s):  # half-chord (vertical, in the frontal plane)
-        return float(np.interp(s, [-0.1, 0.0, 0.25, 0.6, 0.9, WING_LEN], [0.085, 0.11, 0.128, 0.136, 0.14, 0.134]))
+    def place(bm: bmesh.types.BMesh) -> bmesh.types.BMesh:
+        bmesh.ops.transform(bm, matrix=mat, verts=bm.verts)
+        if side < 0:  # the mirror turned the faces inside out
+            bmesh.ops.reverse_faces(bm, faces=bm.faces)
+        return bm
 
-    def thick(s):  # half-thickness (front to back)
-        return float(np.interp(s, [-0.1, 0.4, WING_LEN], [0.052, 0.046, 0.034]))
-
+    # --- the cream blade ---------------------------------------------------------------------
+    end = WING_LEN - FAN_PIVOT
+    ss = [-0.10, 0.0, 0.10, 0.21, 0.32, 0.40, 0.48, 0.60, 0.72, FAN_PIVOT] + [
+        FAN_PIVOT + end * math.sin(math.radians(d)) for d in (35, 62, 80)]
+    n = 12
     rings = []
     for s in ss:
-        c, t = chord(s), thick(s)
-        droop = -0.03 * (max(0.0, s) / WING_LEN) ** 2
+        sec = wing_section(s)
+        tr, nrm = section_axes(sec['inc'])
+        centre = Vector((s, sec['blade_y'], sec['blade_z']))
         ring = []
         for j in range(n):
-            psi = 2 * math.pi * j / n  # 0 = leading edge (top)
-            ring.append(mat @ Vector((s, t * math.sin(psi), c * math.cos(psi) + droop)))
+            psi = 2 * math.pi * j / n  # 0 = the leading edge, then over the top to the trailing edge
+            xi, zeta = math.cos(psi), math.sin(psi)
+            h = sec['camber'] * (1 - xi * xi) + (sec['top'] if zeta >= 0 else sec['bot']) * zeta
+            ring.append(centre - tr * (sec['blade_a'] * xi) + nrm * h)
         rings.append(ring)
     us = [(s + 0.1) / (WING_LEN + 0.1) for s in ss]
-    pole_s = mat @ Vector((-0.13, 0, 0))
-    pole_e = mat @ Vector((WING_LEN + 0.03, 0, -0.02))
-    bm = grid_bmesh(rings, us, pole_s, pole_e)  # grid_bmesh orients closed meshes outwards (mirrored too)
-    wing = new_object(f'wing_{name}', bm, 'wing', coll)
+    first, last = wing_section(ss[0]), wing_section(FAN_PIVOT)
+    pole_s = Vector((-0.13, first['blade_y'], first['blade_z']))
+    pole_e = Vector((WING_LEN + 0.004, last['blade_y'], last['blade_z']))
+    wing = new_object(f'wing_{name}', place(grid_bmesh(rings, us, pole_s, pole_e)), 'wing', coll)
 
-    # feathers: five pointed blades fanned in the wing's plane
+    # --- secondaries: a row of rounded feathers that make up the rear of the chord ---------------
+    sb = bmesh.new()
+    rigid: list[float] = []
+    for i in range(SEC_COUNT):
+        f = i / (SEC_COUNT - 1)
+        s0 = 0.17 + (0.78 - 0.17) * f
+        sec = wing_section(s0)
+        tr, nrm = section_axes(sec['inc'])
+        lean = math.radians(4 + 34 * f * f)  # from straight back to leaning towards the tip
+        along = (tr * math.cos(lean) + Vector((1, 0, 0)) * math.sin(lean)).normalized()
+        across = along.cross(nrm).normalized()
+        root = Vector((s0, sec['y'], sec['z'])) - nrm * 0.006   # under the blade, at mid chord
+        length = (sec['a'] + 0.02) / math.cos(lean) * (1.0 - 0.10 * f)
+        b1 = feather_bm(root, along, across, nrm, length, 0.082, 0.010, SEC_ROUND, 4, roll_deg=-6)
+        rigid += [s0] * len(b1.verts)
+        merge_bm(sb, b1)
+    sec_obj = new_object(f'wing_sec_{name}', place(sb), 'wingfeather', coll)
+    RIGID_S[sec_obj.name] = rigid
+
+    # --- the tip fan: soft, round, wide feathers round the cream end --------------------------------
     fb = bmesh.new()
-    for fan, length in zip(FEATHER_FAN_DEG, FEATHER_LENS):
-        rot = Matrix.Rotation(math.radians(fan), 4, 'Y')
-        base = Matrix.Translation((FEATHER_BASE, 0, -0.03))
-        fmat = mat @ base @ rot
-        rings_f = []
-        us_f = []
-        steps = 7
-        for i in range(steps):
-            u = i / (steps - 1)
-            width = 0.058 * math.sin(math.pi * min(1.0, 0.18 + 0.82 * u)) ** 0.7 + 0.004
-            th = 0.022 * (1 - 0.6 * u)
-            ring = []
-            for j in range(6):
-                psi = 2 * math.pi * j / 6
-                ring.append(fmat @ Vector((u * length * 0.94, th * math.sin(psi), width * math.cos(psi))))
-            rings_f.append(ring)
-            us_f.append(u)
-        tip = fmat @ Vector((length, 0, 0))
-        start = fmat @ Vector((-0.02, 0, 0))
-        b1 = grid_bmesh(rings_f, us_f, start, tip)  # grid_bmesh orients closed meshes outwards (mirrored too)
-        merge_bm(fb, b1)
-    feathers = new_object(f'wing_tip_{name}', fb, 'feather', coll)
-    return wing, feathers
+    sec = wing_section(FAN_PIVOT)
+    tr, nrm = section_axes(sec['inc'])
+    pivot = Vector((FAN_PIVOT, sec['blade_y'], sec['blade_z']))
+    for k, (deg, vis) in enumerate(zip(FAN_DEG, FAN_VISIBLE)):
+        th = math.radians(deg)
+        along = (Vector((1, 0, 0)) * math.cos(th) + tr * math.sin(th)).normalized()
+        across = along.cross(nrm).normalized()
+        cap = 1 / math.sqrt((math.cos(th) / end) ** 2 + (math.sin(th) / sec['blade_a']) ** 2)  # the cream end's edge
+        start = pivot + along * (cap - 0.07) + nrm * ((2.5 - k) * 0.004)
+        merge_bm(fb, feather_bm(start, along, across, nrm, vis + 0.07, 0.080, 0.012, FEATHER_ROUND, 6, roll_deg=-8))
+    fan = new_object(f'wing_fan_{name}', place(fb), 'feather', coll)
+    card_normals(wing, side, SHADE['wing'])
+    card_normals(sec_obj, side, SHADE['wing'])
+    card_normals(fan, side, SHADE['fan'])
+    return wing, sec_obj, fan
 
 
 def build_tail(coll) -> bpy.types.Object:
@@ -779,6 +958,12 @@ def build_eyes(face: dict, coll) -> bpy.types.Object:
         y = surface_y(x, z)
         e = bmesh.new()
         bmesh.ops.create_uvsphere(e, u_segments=10, v_segments=6, radius=1.0)
+        # create_uvsphere leaves its faces in an order that changes from run to run (the same
+        # triangles, shuffled): sort them, so the same script always writes the same GLB
+        e.faces.index_update()
+        by_centre = sorted(e.faces, key=lambda f: tuple(round(c, 5) for c in f.calc_center_median()))
+        rank = {f.index: i for i, f in enumerate(by_centre)}
+        e.faces.sort(key=lambda f: rank[f.index])
         a, _b = radii_at_z(z)
         nrm = Vector((x / max(a, 1e-6) * 0.6, -1, 0)).normalized()
         rot = Vector((0, -1, 0)).rotation_difference(nrm).to_matrix().to_4x4()
@@ -840,6 +1025,10 @@ def build_armature(face: dict, coll) -> bpy.types.Object:
     bone('head', (0, 0, NECK_Z), (0, 0, head_top), 'body', connect=True)
     ez = face['eye_z']
     bone('eye_ctrl', (0, surface_y(0, ez) + 0.1, ez), (0, surface_y(0, ez) - 0.02, ez), 'head')
+    # the glasses: a bone along the line of sight through the bridge, so turning it about its
+    # own length tips the frame sideways (the crash clip)
+    gy = lens_frame(face, 1).translation.y
+    bone('glasses', (0, gy + 0.12, face['lens_z']), (0, gy, face['lens_z']), 'head')
     for side, sfx in ((1, 'L'), (-1, 'R')):
         mat = wing_frame(side)
         names = ['wing_shoulder', 'wing_mid', 'wing_tip']
@@ -847,6 +1036,12 @@ def build_armature(face: dict, coll) -> bpy.types.Object:
             h = mat @ Vector((WING_BONES[i], 0, 0))
             t = mat @ Vector((WING_BONES[i + 1], 0, 0))
             bone(f'{nm}_{sfx}', h, t, 'body' if i == 0 else f'{names[i - 1]}_{sfx}', connect=i > 0)
+        # the tip fan turns about the centre of the wing's rounded end. Its local Z is the wing's
+        # normal, so its local X is the chord: scaling X closes or spreads the fan.
+        sec = wing_section(FAN_PIVOT)
+        fan = bone(f'wing_fan_{sfx}', mat @ Vector((FAN_PIVOT, sec['blade_y'], sec['blade_z'])),
+                   mat @ Vector((WING_BONES[3], sec['blade_y'], sec['blade_z'])), f'wing_tip_{sfx}')
+        fan.align_roll(section_axes(sec['inc'])[1])
         hip, knee, ankle = leg_points(side)
         bone(f'leg_upper_{sfx}', hip, knee, 'body')
         bone(f'leg_lower_{sfx}', knee, ankle, f'leg_upper_{sfx}', connect=True)
@@ -856,10 +1051,10 @@ def build_armature(face: dict, coll) -> bpy.types.Object:
 
 
 def assign_weights(obj: bpy.types.Object, fn) -> None:
-    """fn(world position, part name) -> {bone: weight}."""
+    """fn(world position, part name, vertex index) -> {bone: weight}."""
     groups = {}
     for v in obj.data.vertices:
-        for bname, w in fn(obj.matrix_world @ v.co, obj.name).items():
+        for bname, w in fn(obj.matrix_world @ v.co, obj.name, v.index).items():
             if w <= 1e-4:
                 continue
             if bname not in groups:
@@ -867,8 +1062,26 @@ def assign_weights(obj: bpy.types.Object, fn) -> None:
             groups[bname].add([v.index], float(w), 'REPLACE')
 
 
-def weight_fn(p: Vector, part: str) -> dict:
-    if part in ('head', 'glasses_frame', 'beak', 'lens_L', 'lens_R'):
+WING_BLEND = (0.16, 0.12)  # half-width of the zone where two wing bones share a vertex: mid joint, tip joint.
+# Wide, so a bend or a fold at a joint spreads into an arc instead of a kink.
+ROOT_BLEND = (-0.04, 0.08)  # stations over which the wing's root passes from the body to the shoulder bone.
+# The root (inside the body, under the vest) stays with the body: after the roll a root that
+# turned with the shoulder swung out through the collar whenever the wing was lowered or raised.
+
+
+def wing_weights(s: float, sfx: str) -> dict:
+    """Body, shoulder, mid and tip weights for a point at station s along the wing."""
+    w_root = float(smoothstep(ROOT_BLEND[0], ROOT_BLEND[1], s))
+    w_mid = float(smoothstep(WING_BONES[1] - WING_BLEND[0], WING_BONES[1] + WING_BLEND[0], s))
+    w_tip = float(smoothstep(WING_BONES[2] - WING_BLEND[1], WING_BONES[2] + WING_BLEND[1], s))
+    return {'body': 1 - w_root, f'wing_shoulder_{sfx}': w_root - w_mid, f'wing_mid_{sfx}': w_mid - w_tip,
+            f'wing_tip_{sfx}': w_tip}
+
+
+def weight_fn(p: Vector, part: str, index: int = 0) -> dict:
+    if part in ('glasses_frame', 'lens_L', 'lens_R'):
+        return {'glasses': 1.0}
+    if part in ('head', 'beak'):
         if part == 'head':
             w = float(smoothstep(NECK_Z - 0.02, NECK_Z + 0.05, p.z))
             return {'head': w, 'body': 1 - w}
@@ -883,14 +1096,11 @@ def weight_fn(p: Vector, part: str) -> dict:
     if part.startswith('wing'):
         sfx = part[-1]
         side = 1 if sfx == 'L' else -1
-        s = (p.x * side) - WING_SHOULDER_X
-        if part.startswith('wing_tip'):
-            return {f'wing_tip_{sfx}': 1.0}
-        j1, j2 = WING_BONES[1], WING_BONES[2]
-        d = 0.07
-        w_mid = float(smoothstep(j1 - d, j1 + d, s))
-        w_tip = float(smoothstep(j2 - d, j2 + d, s))
-        return {f'wing_shoulder_{sfx}': 1 - w_mid, f'wing_mid_{sfx}': w_mid - w_tip, f'wing_tip_{sfx}': w_tip}
+        if part.startswith('wing_fan'):
+            return {f'wing_fan_{sfx}': 1.0}
+        if part.startswith('wing_sec'):  # each secondary moves as one piece, with the wing at its root
+            return wing_weights(RIGID_S[part][index], sfx)
+        return wing_weights(((p.x * side) - WING_SHOULDER_X) / WING_SCALE, sfx)
     if part.startswith('leg'):
         sfx = part[-1]
         w = float(smoothstep(KNEE_Z + 0.03, KNEE_Z - 0.03, p.z))
@@ -912,116 +1122,146 @@ def add_socket(name: str, pos: Vector, arm: bpy.types.Object, bone_name: str, co
 
 
 # ----------------------------------------------------------------------------------------------
-# 5. the rest_folded pose (wings down along the sides, as in the front art)
+# 5. the rest_folded pose (wings down along the body's side, as in the front and side art)
 # ----------------------------------------------------------------------------------------------
+# The pose's numbers live in joud_clips.py (FOLD): the idle and crash clips use them too.
+# fold_report() measures the pose against the body on every build; `--tune-fold` searches for
+# better numbers and prints them (it does not change joud_clips.py).
 
-def set_wing_pose(arm, shoulder_deg: float, mid_deg: float, tip_deg: float, forward_deg: float,
-                  twist_deg: float = 0.0) -> None:
-    """Angles in the bind (wings spread) frame. The shoulder first twists the wing about its
-    long axis (negative: leading edge backwards, so the broad front face turns outwards and
-    shows in the front, three-quarter and side views), then turns it down about the front-back
-    axis, then swings it forwards. mid and tip fold the wing within its own plane (positive:
-    towards the trailing edge, which is forwards once twisted)."""
-    for side, sfx in ((1, 'L'), (-1, 'R')):
-        for bname, ang in ((f'wing_shoulder_{sfx}', shoulder_deg), (f'wing_mid_{sfx}', mid_deg), (f'wing_tip_{sfx}', tip_deg)):
-            pb = arm.pose.bones[bname]
-            rest = pb.bone.matrix_local.to_3x3()
-            rw = Matrix.Rotation(math.radians(side * ang), 3, 'Y')
-            if bname.startswith('wing_shoulder'):
-                rw = (Matrix.Rotation(math.radians(-forward_deg), 3, 'X') @ rw
-                      @ Matrix.Rotation(math.radians(twist_deg), 3, 'X'))
-            pb.rotation_mode = 'QUATERNION'
-            pb.rotation_quaternion = (rest.inverted() @ rw @ rest).to_quaternion()
-    bpy.context.view_layer.update()
+FOLD_FAN_TARGET = (0.66, -0.42)  # (x, z) of the tip fan's centre: beside the lower belly
 
 
-def clear_pose(arm) -> None:
-    for pb in arm.pose.bones:
-        pb.rotation_mode = 'QUATERNION'
-        pb.rotation_quaternion = Quaternion()
-        pb.location = (0, 0, 0)
-        pb.scale = (1, 1, 1)
-    bpy.context.view_layer.update()
+def body_distance(pts: np.ndarray) -> np.ndarray:
+    """How far each point (n, 3) is outside the body and vest, along the ray from the body's
+    axis; negative inside. Below the body's bottom or above its top: the distance to that end."""
+    y_px = CY - pts[:, 2] / S
+    a = np.maximum(half_width_px(y_px) * S, 1e-4) + 0.016
+    b = a * depth_ratio(y_px)
+    r = np.hypot(pts[:, 0], pts[:, 1])
+    qq = np.sqrt((pts[:, 0] / a) ** 2 + (pts[:, 1] / b) ** 2)
+    d = r * (1 - 1 / np.maximum(qq, 1e-6))
+    top, bottom = (CY - PROFILE_PX[0][0]) * S, (CY - PROFILE_PX[-1][0]) * S
+    d = np.where(pts[:, 2] < bottom, np.hypot(r, bottom - pts[:, 2]), d)
+    return np.where(pts[:, 2] > top, np.hypot(r, pts[:, 2] - top), d)
 
 
-def penetration(objs: list[bpy.types.Object]) -> tuple[int, float, float]:
-    """Wing vertices (deformed) inside the body. Returns (outer-half vertices inside, deepest
-    outer, deepest overall). The outer half is the leading edge, where the green line runs:
-    it must stay outside (past the root, which starts inside the body under the vest). The inner half may sink into the body's side, as in the front art,
-    where the wing's inner edge is hidden behind the body."""
-    deps = bpy.context.evaluated_depsgraph_get()
-    z_outer = (CY - SHOULDER_PX) * S + 0.035  # the top third of the chord: the green line
-    count, deep_outer, deep_all = 0, 0.0, 0.0
-    for obj in objs:
-        rest = obj.data.vertices
-        ev = obj.evaluated_get(deps)
-        me = ev.to_mesh()
-        for v, v0 in zip(me.vertices, rest):
-            p = ev.matrix_world @ v.co
-            a, b = radii_at_z(p.z)
-            if a <= 0:
-                continue
-            a += 0.02
-            b += 0.02
-            q = (p.x / a) ** 2 + (p.y / b) ** 2
-            p0 = obj.matrix_world @ v0.co
-            if q < 1.0 and abs(p0.x) > WING_SHOULDER_X + 0.2:  # the root sits under the vest
-                d = (1 - math.sqrt(q)) * a
-                deep_all = max(deep_all, d)
-                if p0.z > z_outer:
-                    count += 1
-                    deep_outer = max(deep_outer, d)
-        ev.to_mesh_clear()
-    return count, deep_outer, deep_all
+class WingSkin:
+    """The left wing's vertices and weights as arrays, so a pose can be measured without
+    Blender re-evaluating the meshes (linear blend skinning, as the armature modifier does)."""
+
+    def __init__(self, arm, objs: list[bpy.types.Object]) -> None:
+        self.arm = arm
+        self.bones = ['body'] + [f'wing_{n}_L' for n in ('shoulder', 'mid', 'tip', 'fan')]
+        rest, wts, part, stn = [], [], [], []
+        for o in objs:
+            groups = {g.index: g.name for g in o.vertex_groups}
+            for v in o.data.vertices:
+                p0 = o.matrix_world @ v.co
+                w = [0.0] * len(self.bones)
+                for g in v.groups:
+                    if groups[g.group] in self.bones:
+                        w[self.bones.index(groups[g.group])] = g.weight
+                rest.append(p0)
+                wts.append(w)
+                part.append(o.name)
+                stn.append((p0.x - WING_SHOULDER_X) / WING_SCALE)
+        self.rest = np.array([[p.x, p.y, p.z, 1.0] for p in rest])
+        self.wts = np.array(wts)
+        self.wts /= self.wts.sum(axis=1, keepdims=True)
+        self.part = np.array(part)
+        self.station = np.array(stn)
+
+    def deform(self) -> np.ndarray:
+        """Vertex positions (n, 3) for the armature's current pose."""
+        out = np.zeros((len(self.rest), 3))
+        for i, name in enumerate(self.bones):
+            pb = self.arm.pose.bones[name]
+            m = np.array(pb.matrix @ pb.bone.matrix_local.inverted())
+            out += (self.rest @ m.T)[:, :3] * self.wts[:, i:i + 1]
+        return out
 
 
-# Front art: the feather tips' centre hangs beside the belly at about (0.69, -0.24) (wing-tip
-# bounds measured in measure_reference); the side art has them lower, near the feet, with the
-# wing hanging almost straight down and its broad face along the body's side. The poster-length
-# wing cannot match both: the target sits between them, with a light backwards fold and twist.
-FOLD_TIP_TARGET = (0.70, -0.40)
+def fold_measure(skin: WingSkin, wing: dict) -> dict:
+    p = joud_clips.Pose()
+    joud_clips.set_wings(p, wing)
+    joud_clips.apply(skin.arm, p)
+    pts = skin.deform()
+    d = body_distance(pts)
+    out = skin.station > 0.34            # past the root, which starts inside the body under the vest
+    blade = (skin.part == 'wing_L') & (skin.station > 0.36) & (skin.station < 1.04)
+    fan = skin.part == 'wing_fan_L'
+    c = pts[fan].mean(axis=0)
+    # the blade's top face at mid-wing: which way does it look?
+    pb = skin.arm.pose.bones['wing_mid_L']
+    nrm = (pb.matrix.to_3x3() @ pb.bone.matrix_local.to_3x3().inverted()) @ Vector((0, 0, 1))
+    return {
+        'inside': int((d[out] < 0).sum()), 'deepest': float(max(0.0, -d[out].min())),
+        'gap': float(np.clip(d[blade], 0, None).mean()), 'fan_centre': [float(v) for v in c],
+        'lowest': float(pts[:, 2].min()), 'outermost': float(pts[:, 0].max()),
+        'face_out': float(nrm.x), 'face_front': float(-nrm.y),
+        '_cost_inside': float((np.clip(0.006 - d[out], 0, None) ** 2).sum()),
+    }
 
 
-def tip_centre(obj: bpy.types.Object) -> Vector:
-    deps = bpy.context.evaluated_depsgraph_get()
-    ev = obj.evaluated_get(deps)
-    me = ev.to_mesh()
-    c = Vector()
-    for v in me.vertices:
-        c += ev.matrix_world @ v.co
-    c /= max(1, len(me.vertices))
-    ev.to_mesh_clear()
-    return c
+def fold_cost(m: dict, wing: dict) -> float:
+    tx, tz = FOLD_FAN_TARGET
+    cx, cy, cz = m['fan_centre']
+    bends = sum((wing[k] / 40.0) ** 2 for k in ('mid_fold', 'mid_bend', 'tip_fold', 'tip_bend', 'fan_bend'))
+    return (m['_cost_inside'] * 6000 + m['gap'] * 12 + ((cx - tx) ** 2 + (cz - tz) ** 2) * 30
+            + max(0.0, -cy) ** 2 * 20 + max(0.0, cy - 0.30) ** 2 * 20
+            + max(0.0, 0.70 - m['face_out']) ** 2 * 6 + bends * 0.35)
 
 
-def tune_folded_pose(arm, wing_objs) -> dict:
-    """Search the fold whose feather tips sit where the front art has them, with the wing's
-    outer edge out of the body and the inner edge sunk no deeper than 0.12."""
-    tip_l = next(o for o in wing_objs if o.name == 'wing_tip_L')
-    tx, tz = FOLD_TIP_TARGET
-    best = None
-    for twist in (-40.0, -55.0, -70.0):
-        for sh in range(42, 80, 4):
-            for mid in (-30.0, -20.0, -10.0, 0.0, 10.0):
-                for tip in (-30.0, -15.0, 0.0, 15.0):
-                    set_wing_pose(arm, sh, mid, tip, 0.0, twist)
-                    n, _d_out, d_all = penetration(wing_objs)
-                    c = tip_centre(tip_l)
-                    miss = math.hypot(c.x - tx, c.z - tz)
-                    # feathers far behind the body hide the peach fan the front art shows
-                    score = (n * 10 + max(0.0, d_all - 0.12) * 300 + miss * 25
-                             + max(0.0, -0.05 - c.y) * 15 + max(0.0, c.y - 0.15) * 8
-                             + abs(twist + 55.0) * 0.05)
-                    if best is None or score < best[0]:
-                        best = (score, sh, mid, tip, twist, n, d_all, c.copy())
-    _score, sh, mid, tip, twist, n, d_all, c = best
-    set_wing_pose(arm, sh, mid, tip, 0.0, twist)
-    log(f'rest_folded: wing twisted {twist:.0f} deg, shoulder {sh} deg down, folded back {mid:.0f}, '
-        f'tip {tip:.0f}; feather centre at x {c.x:.2f} z {c.z:.2f} y {c.y:.2f} '
-        f'(target: x {tx} z {tz}); outer-edge vertices inside the body: {n}; inner edge sinks {d_all:.3f} (hidden)')
-    return {'shoulder_down_deg': sh, 'twist_deg': twist, 'fold_back_deg': mid, 'tip_deg': tip,
-            'outer_vertices_inside': n, 'inner_depth': round(d_all, 3),
-            'feather_centre': [round(c.x, 3), round(c.y, 3), round(c.z, 3)]}
+def tune_fold(skin: WingSkin, start: dict) -> dict:
+    """Pattern search from `start` over the fold's angles (the fan's spread stays as given)."""
+    names = ['elev', 'twist', 'back', 'mid_fold', 'mid_bend', 'tip_fold', 'tip_bend', 'fan_bend']
+    best = dict(start)
+    best_cost = fold_cost(fold_measure(skin, best), best)
+    for step in (8.0, 4.0, 2.0, 1.0):
+        improved = True
+        while improved:
+            improved = False
+            for nm in names:
+                for sign in (1, -1):
+                    trial = dict(best)
+                    trial[nm] += sign * step
+                    if abs(trial[nm]) > (95 if nm == 'elev' else 40):
+                        continue
+                    cost = fold_cost(fold_measure(skin, trial), trial)
+                    if cost < best_cost - 1e-6:
+                        best, best_cost, improved = trial, cost, True
+    return best
+
+
+def fold_report(arm, wing_objs: list[bpy.types.Object]) -> dict:
+    skin = WingSkin(arm, [o for o in wing_objs if o.name.endswith('_L')])
+    wing = dict(joud_clips.FOLD)
+    for arg in ARGS:  # --fold=elev=-60,twist=-10: try other numbers without editing joud_clips.py
+        if arg.startswith('--fold='):
+            wing.update({k: float(v) for k, v in (kv.split('=') for kv in arg[7:].split(','))})
+            joud_clips.FOLD.update(wing)
+    if TUNE_FOLD:
+        tuned = tune_fold(skin, wing)
+        joud_clips.FOLD.update(tuned)
+        log('--tune-fold: FOLD = wing_pose(' + ', '.join(f'{k}={v:.1f}' for k, v in tuned.items() if v) + ')')
+        wing = tuned
+    m = fold_measure(skin, wing)
+    joud_clips.apply(arm, None)
+    cx, cy, cz = m['fan_centre']
+    log(f'rest_folded: shoulder {wing["elev"]:.0f} deg, twist {wing["twist"]:.0f}, back {wing["back"]:.0f}; '
+        f'mid fold {wing["mid_fold"]:.0f} bend {wing["mid_bend"]:.0f}; tip fold {wing["tip_fold"]:.0f} '
+        f'bend {wing["tip_bend"]:.0f}; fan centre x {cx:.2f} y {cy:.2f} z {cz:.2f} '
+        f'(target x {FOLD_FAN_TARGET[0]} z {FOLD_FAN_TARGET[1]}); lowest point z {m["lowest"]:.2f}; '
+        f'vertices inside the body: {m["inside"]} (deepest {m["deepest"]:.3f}); mean gap to the body '
+        f'{m["gap"]:.3f}; top face looks {m["face_out"]:.2f} out, {m["face_front"]:.2f} forwards; '
+        f'wing length x{WING_SCALE:.2f}')
+    report = {k: (round(v, 3) if isinstance(v, float) else v) for k, v in m.items() if not k.startswith('_')}
+    report['fan_centre'] = [round(v, 3) for v in m['fan_centre']]
+    report['wing'] = {k: round(v, 2) for k, v in wing.items()}
+    report['wing_scale'] = WING_SCALE
+    if TUNE_FOLD:
+        report['_tuned'] = wing
+    return report
 
 
 # ----------------------------------------------------------------------------------------------
@@ -1029,7 +1269,8 @@ def tune_folded_pose(arm, wing_objs) -> dict:
 # ----------------------------------------------------------------------------------------------
 
 TEXEL_WEIGHT = {  # relative texel density per part kind (the vest art gets the most)
-    'vest': 2.3, 'collar': 2.0, 'head': 1.5, 'body': 0.85, 'wing': 0.8, 'feather': 0.8, 'lens': 0.1,
+    'vest': 2.3, 'collar': 2.0, 'head': 1.5, 'body': 0.85, 'wing': 0.8, 'wingfeather': 0.7, 'feather': 1.9,
+    'lens': 0.1,
 }
 # Flat-coloured parts (legs, beak, eyes, glasses) are too small for islands of their own: every
 # UV of theirs points at one solid swatch in a strip along the atlas's top edge.
@@ -1208,7 +1449,7 @@ def vest_masks(m: dict) -> tuple[np.ndarray, np.ndarray]:
     return vest.astype(np.float32), green.astype(np.float32)
 
 
-def paint_atlas(objs: list[bpy.types.Object], m: dict, face: dict) -> np.ndarray:
+def paint_atlas(objs: list[bpy.types.Object], m: dict, face: dict) -> tuple[np.ndarray, dict]:
     R = rasterize(objs)
     part, pos, nrm, prm = R['part'], R['pos'], R['nrm'], R['prm']
     n = ATLAS
@@ -1239,7 +1480,7 @@ def paint_atlas(objs: list[bpy.types.Object], m: dict, face: dict) -> np.ndarray
     face_w = smoothstep(0.12, 0.42, facing)
 
     # body, head, wings: cream
-    for k in ('body', 'head', 'wing'):
+    for k in ('body', 'head', 'wing', 'wingfeather'):
         out[kind == k] = cream
 
     # vest: the art where it shows the vest, flat vest colour elsewhere (back, sides)
@@ -1286,15 +1527,38 @@ def paint_atlas(objs: list[bpy.types.Object], m: dict, face: dict) -> np.ndarray
     vv = prm[..., 1]
     vv = np.minimum(vv, 1 - vv)  # distance around from the leading edge (0..0.5)
     u = prm[..., 0]
-    line = sel & (vv < 0.055) & (u > 0.08) & (u < 0.95)
-    out[line] = green
+    # coverage, not a threshold: the line's edge runs diagonally across the atlas's texels, and
+    # a hard edge there showed as a staircase along the whole leading edge
+    step = np.zeros_like(vv)
+    for axis in (0, 1):
+        for shift in (1, -1):
+            same = np.roll(part, shift, axis) == part
+            step = np.maximum(step, np.where(same, np.abs(np.roll(vv, shift, axis) - vv), 0.0))
+    cover = np.clip(0.5 + (0.07 - vv) / np.maximum(step, 1e-4), 0, 1)
+    cover = cover * smoothstep(0.08, 0.10, u) * (1 - smoothstep(0.93, 0.95, u))
+    cover = np.where(sel, cover, 0.0)
+    out = out * (1 - cover[..., None]) + green * cover[..., None]
+    line = cover > 0.5
+    # Amr, 27 Nov: after the roll the green edge must face forwards (-Y) on BOTH wings.
+    green_edge = {}
+    for pid, o in enumerate(objs, start=1):
+        if o.name in ('wing_L', 'wing_R'):
+            on = line & (part == pid)
+            lead = float(pos[..., 1][on].mean())                       # where the green line is
+            rest = float(pos[..., 1][(part == pid) & ~line].mean())     # the rest of that wing
+            green_edge[o.name[-1]] = {'y_blender': round(lead, 3), 'wing_y_blender': round(rest, 3),
+                                      'faces': 'front' if lead < rest - 0.05 else 'BACK'}
+    if any(v['faces'] != 'front' for v in green_edge.values()) or len(green_edge) != 2:
+        raise RuntimeError(f'the green edge must lead on both wings: {green_edge}')
 
     # feathers (wing tips, tail): peach with short dark strokes, as in the art
     sel = kind == 'feather'
     out[sel] = peach_tip
     vfa = prm[..., 1]
-    strokes = sel & (u > 0.5) & (u < 0.9) & ((np.abs(vfa - 0.25) < 0.035) | (np.abs(vfa - 0.75) < 0.035))
-    out[strokes] = out[strokes] * 0.15 + stroke * 0.85
+    across = np.minimum(np.abs(vfa - 0.25), np.abs(vfa - 0.75))   # from the centre line of either face
+    ink = (1 - smoothstep(0.010, 0.026, across)) * smoothstep(0.58, 0.64, u) * (1 - smoothstep(0.86, 0.92, u)) * 0.8
+    ink = np.where(sel, ink, 0.0)[..., None]
+    out = out * (1 - ink) + stroke * ink
 
     out[kind == 'lens'] = lens_tint
     flat_colour = {'dark': hex_rgb(PAL['legs']), 'eye': hex_rgb(m['eye_colour_art']),
@@ -1318,7 +1582,10 @@ def paint_atlas(objs: list[bpy.types.Object], m: dict, face: dict) -> np.ndarray
     out = dilate(out, filled, 10)
     out[~dilate(filled[..., None].astype(np.float32), filled, 10)[..., 0].astype(bool)] = cream
     log(f'atlas: {filled.mean() * 100:.0f} % of the texels are used')
-    return out
+    log(f'green leading edge (Blender Y, front is -Y): left {green_edge["L"]["y_blender"]}, right '
+        f'{green_edge["R"]["y_blender"]}; rest of each wing {green_edge["L"]["wing_y_blender"]}, '
+        f'{green_edge["R"]["wing_y_blender"]}: both lead')
+    return out, green_edge
 
 
 def save_atlas(rgb: np.ndarray, path: str) -> bpy.types.Image:
@@ -1396,11 +1663,16 @@ def write_glb(path: str, js: dict, binb: bytes) -> None:
             f.write(bb)
 
 
-def export_glb(path: str, objs: list[bpy.types.Object], rest_position: bool) -> None:
+def export_glb(path: str, objs: list[bpy.types.Object], rest_position: bool, animations: bool = False) -> None:
     bpy.ops.object.select_all(action='DESELECT')
     for o in objs:
         o.select_set(True)
     bpy.context.view_layer.objects.active = objs[0]
+    anim = {}
+    if animations:  # every action stashed on the armature's NLA tracks, sampled on each frame
+        anim = dict(export_animation_mode='ACTIONS', export_force_sampling=True, export_frame_range=False,
+                    export_anim_slide_to_zero=True, export_optimize_animation_size=True,
+                    export_reset_pose_bones=True)
     bpy.ops.export_scene.gltf(
         filepath=path,
         export_format='GLB',
@@ -1415,14 +1687,124 @@ def export_glb(path: str, objs: list[bpy.types.Object], rest_position: bool) -> 
         export_image_quality=82,
         export_skins=True,
         export_all_influences=False,
-        export_animations=False,
+        export_animations=animations,
         export_morph=False,
         export_extras=False,
         export_cameras=False,
         export_lights=False,
         export_rest_position_armature=rest_position,
         export_def_bones=False,
+        **anim,
     )
+
+
+# --- animations in the exported glb ---------------------------------------------------------------
+
+_COMPONENTS = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4, 'MAT4': 16}
+_REST = {'translation': [0, 0, 0], 'rotation': [0, 0, 0, 1], 'scale': [1, 1, 1]}
+
+
+def accessor_array(js: dict, binb: bytes, index: int) -> np.ndarray:
+    """A float accessor's values, (count, components). Animation data is never interleaved."""
+    acc = js['accessors'][index]
+    assert acc['componentType'] == 5126, 'float accessors only'
+    view = js['bufferViews'][acc['bufferView']]
+    n = _COMPONENTS[acc['type']]
+    off = view.get('byteOffset', 0) + acc.get('byteOffset', 0)
+    return np.frombuffer(binb, dtype='<f4', count=acc['count'] * n, offset=off).reshape(acc['count'], n)
+
+
+def clean_animations(js: dict, binb: bytes) -> dict:
+    """Drop every channel on the root bone (the game owns the root), and every channel that
+    only repeats its bone's bind value (three.js falls back to the bind pose for a bone a clip
+    does not move, and blends from it correctly). Returns {clip: {...}} for the log."""
+    names = [nd.get('name') for nd in js['nodes']]
+    report = {}
+    for a in js.get('animations', []):
+        keep, dropped_root, dropped_rest = [], 0, 0
+        for ch in a['channels']:
+            node = js['nodes'][ch['target']['node']]
+            path = ch['target']['path']
+            if node.get('name') == 'root':
+                dropped_root += 1
+                continue
+            vals = accessor_array(js, binb, a['samplers'][ch['sampler']]['output'])
+            rest = np.array(node.get(path, _REST[path]), dtype=np.float64)
+            still = np.abs(vals - rest).max() < 1e-5
+            if path == 'rotation':
+                still = still or np.abs(vals + rest).max() < 1e-5
+            if still:
+                dropped_rest += 1
+                continue
+            keep.append(ch)
+        used = sorted({ch['sampler'] for ch in keep})
+        remap = {old: new for new, old in enumerate(used)}
+        a['samplers'] = [a['samplers'][i] for i in used]
+        for ch in keep:
+            ch['sampler'] = remap[ch['sampler']]
+        a['channels'] = keep
+        times = [accessor_array(js, binb, smp['input']) for smp in a['samplers']]
+        report[a['name']] = {
+            'channels': len(keep), 'dropped_root': dropped_root, 'dropped_at_rest': dropped_rest,
+            'duration': float(max(t.max() for t in times)) if times else 0.0,
+            'bones': sorted({names[ch['target']['node']] for ch in keep}),
+        }
+    return report
+
+
+def compact_glb(js: dict, binb: bytes) -> bytes:
+    """Rebuild the binary chunk with only the data still in use; animation accessors with the
+    same content (the clips' time lines, mostly) are stored once."""
+    used: set[int] = set()
+    for mesh in js['meshes']:
+        for prim in mesh['primitives']:
+            used.update(prim['attributes'].values())
+            if 'indices' in prim:
+                used.add(prim['indices'])
+    for skin in js.get('skins', []):
+        used.add(skin['inverseBindMatrices'])
+    canon: dict[tuple, int] = {}
+    for a in js.get('animations', []):
+        for smp in a['samplers']:
+            for key in ('input', 'output'):
+                acc = js['accessors'][smp[key]]
+                ident = (acc['componentType'], acc['type'], acc['count'], accessor_array(js, binb, smp[key]).tobytes())
+                smp[key] = canon.setdefault(ident, smp[key])
+                used.add(smp[key])
+    views = {js['accessors'][i]['bufferView'] for i in used}
+    views |= {im['bufferView'] for im in js.get('images', []) if 'bufferView' in im}
+    out = bytearray()
+    view_map, new_views = {}, []
+    for i, view in enumerate(js['bufferViews']):
+        if i not in views:
+            continue
+        out += b'\0' * ((4 - len(out) % 4) % 4)
+        start = view.get('byteOffset', 0)
+        nv = dict(view, byteOffset=len(out))
+        out += binb[start:start + view['byteLength']]
+        view_map[i] = len(new_views)
+        new_views.append(nv)
+    acc_map, new_accs = {}, []
+    for i, acc in enumerate(js['accessors']):
+        if i in used:
+            acc_map[i] = len(new_accs)
+            new_accs.append(dict(acc, bufferView=view_map[acc['bufferView']]))
+    for mesh in js['meshes']:
+        for prim in mesh['primitives']:
+            prim['attributes'] = {k: acc_map[v] for k, v in prim['attributes'].items()}
+            if 'indices' in prim:
+                prim['indices'] = acc_map[prim['indices']]
+    for skin in js.get('skins', []):
+        skin['inverseBindMatrices'] = acc_map[skin['inverseBindMatrices']]
+    for a in js.get('animations', []):
+        for smp in a['samplers']:
+            smp['input'], smp['output'] = acc_map[smp['input']], acc_map[smp['output']]
+    for im in js.get('images', []):
+        if 'bufferView' in im:
+            im['bufferView'] = view_map[im['bufferView']]
+    js['accessors'], js['bufferViews'] = new_accs, new_views
+    js['buffers'][0]['byteLength'] = len(out)
+    return bytes(out)
 
 
 def node_world(js: dict) -> dict[int, np.ndarray]:
@@ -1490,7 +1872,7 @@ def main() -> None:
     bottom_z = (CY - PROFILE_PX[-1][0]) * S
     log(f'model: height {head_top_z - bottom_z:.3f} (head top {head_top_z:.3f}, body bottom {bottom_z:.3f}), '
         f'body half-width 0.600, head {(head_top_z - NECK_Z) / (head_top_z - bottom_z) * 100:.0f} % of the height '
-        f'(brief: 33 %), wing {WING_LEN + FEATHER_BASE * 0 + max(FEATHER_LENS) - (WING_LEN - FEATHER_BASE):.2f} from the shoulder joint')
+        f'(brief: 33 %), wing {(WING_LEN + max(FAN_VISIBLE)) * WING_SCALE:.2f} from the shoulder joint')
 
     # --- parts -----------------------------------------------------------------------------------
     parts_coll = bpy.data.collections.new('Joud_parts')
@@ -1520,7 +1902,7 @@ def main() -> None:
     unwrap_atlas(textured)
     for ln in lenses:
         ln.data.uv_layers.new(name='atlas')
-    atlas_rgb = paint_atlas(textured, m, face)
+    atlas_rgb, green_edge = paint_atlas(textured, m, face)
     tmpdir = tempfile.mkdtemp(prefix='joud_')
     atlas_path = os.path.join(tmpdir, 'joud_atlas.png')
     img = save_atlas(atlas_rgb, atlas_path)
@@ -1568,11 +1950,15 @@ def main() -> None:
     ref_empty.empty_image_side = 'FRONT'
     extra_coll.objects.link(ref_empty)
 
-    # --- folded pose ------------------------------------------------------------------------------
-    fold = tune_folded_pose(arm, [o for o in wings])
+    # --- folded pose and clips ---------------------------------------------------------------------
+    fold = fold_report(arm, wings)
+    fold_wing = fold.pop('_tuned', None) or dict(joud_clips.FOLD)
+    clips = joud_clips.bake(arm)
+    log('clips baked at %d fps: ' % joud_clips.FPS + ', '.join(
+        f'{nm} {c["frames"]} frames{" (loop)" if c["loops"] else ""}' for nm, c in clips.items()))
 
     # --- export: join a copy of the parts (one mesh, one material) ------------------------------------
-    clear_pose(arm)
+    joud_clips.apply(arm, None)
     exp_parts = [o for o in textured] + (lenses if WITH_LENSES else [])
     copies = []
     for o in exp_parts:
@@ -1603,23 +1989,35 @@ def main() -> None:
     export_objs = [arm, joined] + lens_copies + socket_objs
 
     tmp_fold = os.path.join(tmpdir, 'fold.glb')
-    set_wing_pose(arm, fold['shoulder_down_deg'], fold['fold_back_deg'], fold['tip_deg'], 0.0, fold['twist_deg'])
+    pose = joud_clips.Pose()
+    joud_clips.set_wings(pose, fold_wing)
+    joud_clips.apply(arm, pose)
     export_glb(tmp_fold, export_objs, rest_position=False)
-    clear_pose(arm)
+    joud_clips.apply(arm, None)
     os.makedirs(os.path.dirname(OUT_GLB), exist_ok=True)
-    export_glb(OUT_GLB, export_objs, rest_position=True)
+    export_glb(OUT_GLB, export_objs, rest_position=True, animations=True)
 
-    # --- post-process: rest_folded pose and metadata into the armature node's extras -------------------
+    # --- post-process: clips cleaned, rest_folded pose and metadata into the armature node's extras ---
     js, binb = read_glb(OUT_GLB)
     fjs, _ = read_glb(tmp_fold)
     names = [nd.get('name') for nd in js['nodes']]
     skin = js['skins'][0]
     joints = [names[j] for j in skin['joints']]
-    folded = {}
+    anim = clean_animations(js, binb)
+    binb = compact_glb(js, binb)
+    order = list(joud_clips.CLIPS)
+    js['animations'] = sorted(js.get('animations', []), key=lambda a: order.index(a['name']))
+    if [a['name'] for a in js['animations']] != order:
+        raise RuntimeError(f'expected the clips {order}, the exporter wrote {[a["name"] for a in js["animations"]]}')
+    for nm, (frames, _loops) in joud_clips.CLIPS.items():
+        if abs(anim[nm]['duration'] - frames / joud_clips.FPS) > 1e-3:
+            raise RuntimeError(f'clip {nm}: {anim[nm]["duration"]:.4f} s, expected {frames / joud_clips.FPS:.4f}')
+    folded, folded_scale = {}, {}
     for nd in fjs['nodes']:
         if nd.get('name', '').startswith('wing_'):
-            q = nd.get('rotation', [0, 0, 0, 1])
-            folded[nd['name']] = [round(v, 6) for v in q]
+            folded[nd['name']] = [round(v, 6) for v in nd.get('rotation', [0, 0, 0, 1])]
+            if 'scale' in nd and max(abs(v - 1) for v in nd['scale']) > 1e-4:
+                folded_scale[nd['name']] = [round(v, 5) for v in nd['scale']]
     worlds = node_world(js)
     eye_i = names.index('eye_ctrl')
     ew = worlds[eye_i][:3, :3]
@@ -1635,9 +2033,12 @@ def main() -> None:
         'source': 'tools/blender/build_joud.py',
         'units': 'model units; body half-width 0.6; game scale 0.2',
         'facing': '+Z front, +X Joud\'s left, +Y up',
-        'bind_pose': 'wings straight out to the sides',
+        'bind_pose': 'wings straight out to the sides, leading (green) edge forwards',
         'poses': {'rest_folded': folded},
-        'rest_folded_search': fold,
+        'poses_scale': {'rest_folded': folded_scale},
+        'rest_folded_report': fold,
+        'clips': {nm: {'frames': c['frames'], 'fps': joud_clips.FPS, 'loop': c['loops']} for nm, c in clips.items()},
+        'green_edge': green_edge,
         'blink': {'bone': 'eye_ctrl', 'local_axis': 'xyz'[axis], 'closed_scale': 0.1},
         'sockets': {nm: bn for nm, (_p, bn) in sockets.items()},
         'joints': joints,
@@ -1652,17 +2053,21 @@ def main() -> None:
         f'images {images}, blink axis {"xyz"[axis]}')
     log('joints: ' + ', '.join(joints))
     log('sockets: ' + ', '.join(sockets))
+    for nm in order:
+        c = anim[nm]
+        log(f'clip {nm:5s} {c["duration"]:.3f} s, {c["channels"]} channels on {len(c["bones"])} bones '
+            f'(dropped: {c["dropped_root"]} on the root, {c["dropped_at_rest"]} at rest)')
     if size_kb > SIZE_LIMIT_KB:
         log(f'WARNING: over the {SIZE_LIMIT_KB} KB budget')
+    if tris > 8000:
+        log('WARNING: over the brief\'s 8000 triangles')
 
     # --- the .blend: parts separate, no joined copy ------------------------------------------------------
     for c in [joined] + lens_copies:
         bpy.data.objects.remove(c, do_unlink=True)
     if SAVE_BLEND:
-        set_wing_pose(arm, fold['shoulder_down_deg'], fold['fold_back_deg'], fold['tip_deg'], 0.0, fold['twist_deg'])
-        # keep the folded pose as a pose-library-free custom property too
         arm['rest_folded'] = json.dumps(fold)
-        clear_pose(arm)
+        joud_clips.apply(arm, None)
         bpy.context.preferences.filepaths.save_version = 0  # no joud-v2.blend1 backup
         bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND, compress=True)
         mb = os.path.getsize(OUT_BLEND) / 1e6
