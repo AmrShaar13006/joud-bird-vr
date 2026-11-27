@@ -1663,6 +1663,7 @@ def main() -> None:
         # keep the folded pose as a pose-library-free custom property too
         arm['rest_folded'] = json.dumps(fold)
         clear_pose(arm)
+        bpy.context.preferences.filepaths.save_version = 0  # no joud-v2.blend1 backup
         bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND, compress=True)
         mb = os.path.getsize(OUT_BLEND) / 1e6
         log(f'wrote {os.path.relpath(OUT_BLEND, REPO)}: {mb:.2f} MB')

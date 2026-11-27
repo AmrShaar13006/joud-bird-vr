@@ -1,0 +1,73 @@
+{
+ "lambert": {
+  "model": "v2",
+  "pose": "flap",
+  "view": "three-quarter",
+  "look": "lambert",
+  "ref": false,
+  "calls": 1,
+  "triangles": 7676,
+  "fps": 41,
+  "bytes": 381532,
+  "joints": [
+   "root",
+   "body",
+   "head",
+   "eye_ctrl",
+   "leg_upper_L",
+   "leg_lower_L",
+   "leg_upper_R",
+   "leg_lower_R",
+   "wing_shoulder_L",
+   "wing_mid_L",
+   "wing_tip_L",
+   "wing_shoulder_R",
+   "wing_mid_R",
+   "wing_tip_R"
+  ],
+  "sockets": [
+   "socket_eyes",
+   "socket_head_top",
+   "socket_back",
+   "socket_chest",
+   "socket_neck",
+   "socket_feet"
+  ]
+ },
+ "toon": {
+  "model": "v2",
+  "pose": "flap",
+  "view": "three-quarter",
+  "look": "toon",
+  "ref": false,
+  "calls": 2,
+  "triangles": 15352,
+  "fps": 34,
+  "bytes": 381532,
+  "joints": [
+   "root",
+   "body",
+   "head",
+   "eye_ctrl",
+   "leg_upper_L",
+   "leg_lower_L",
+   "leg_upper_R",
+   "leg_lower_R",
+   "wing_shoulder_L",
+   "wing_mid_L",
+   "wing_tip_L",
+   "wing_shoulder_R",
+   "wing_mid_R",
+   "wing_tip_R"
+  ],
+  "sockets": [
+   "socket_eyes",
+   "socket_head_top",
+   "socket_back",
+   "socket_chest",
+   "socket_neck",
+   "socket_feet"
+  ]
+ },
+ "note": "headless Chromium with SwiftShader (software WebGL): fps only compares the looks"
+}

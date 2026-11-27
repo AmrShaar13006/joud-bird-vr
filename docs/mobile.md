@@ -41,6 +41,12 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
   (`src/core/bot.ts`, one decision per fixed step) fly practice rounds, which are never ranked.
 - **Other flags:** `?mode=`, `?mute=1`, `?model=placeholder`, `?fx=0`. URL tuning (`?g=` etc.) is
   ignored here, because ranked rules only come from the ruleset.
+- **Model viewer:** `?debug=1&rig=1&model=v2` (or `v1`) replaces the game with a viewer for
+  `public/models/joud-v2.glb`: poses (folded, spread, flap), views (front, three-quarter, side,
+  back, face), the official art beside the model, sockets, blink, and the toon look proposal.
+  `src/mobile/model-gate.ts` stops the game from starting there. The model is built by
+  `tools/blender/build_joud.py` (Blender, run by hand); `npm run model:shots` (after
+  `npm run build`) writes `docs/screens/model-v2/`.
 - **Offline:** `public/play/sw.js` caches what the first load fetched, so the game works offline
   afterwards. It makes no network calls of its own.
 
