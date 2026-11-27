@@ -34,7 +34,11 @@ class FakeDb implements Db {
     return ticket;
   }
 
+  /** Players without a complete student profile and a name (public.issue_ticket: needsProfile). */
+  noProfile = new Set<string>();
+
   issueTicket(userId: string, rulesetId: string, mode: string, seed: number, ttl: number): Promise<IssueResult> {
+    if (this.noProfile.has(userId)) return Promise.resolve({ ok: false, reason: 'needsProfile' });
     const mine = [...this.tickets.values()].filter((t) => t.user_id === userId);
     const open = mine.filter((t) => !t.used_at && Date.parse(t.expires_at) > this.now).length;
     if (open >= 3) return Promise.resolve({ ok: false, reason: 'tooManyOpen' });
@@ -88,6 +92,16 @@ Deno.test('issue-run: a ticket for the ranked ruleset with a server seed; bad mo
   assertEquals(r.body.seed, 123456);
   assertEquals((await issueRun(db, ME, { mode: 'ultra' })).status, 400);
   assertEquals((await issueRun(db, ME, null)).status, 400);
+});
+
+Deno.test('issue-run: no complete profile (guest, old anonymous session) is 403 needsProfile', async () => {
+  const db = new FakeDb();
+  db.noProfile.add(OTHER);
+  const r = await issueRun(db, OTHER, { mode: 'normal' });
+  assertEquals(r.status, 403);
+  assertEquals(r.body.error, 'needsProfile');
+  assertEquals(db.tickets.size, 0);
+  assertEquals((await issueRun(db, ME, { mode: 'normal' })).status, 200);
 });
 
 Deno.test('issue-run: the 4th open ticket and the 121st in an hour are refused', async () => {

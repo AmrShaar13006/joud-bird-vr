@@ -39,7 +39,7 @@ export interface StoredRun {
 
 export type IssueResult =
   | { ok: true; ticketId: string; rulesetId: string; mode: string; seed: number; issuedAt: string; expiresAt: string }
-  | { ok: false; reason: 'tooManyOpen' | 'tooManyPerHour' };
+  | { ok: false; reason: 'tooManyOpen' | 'tooManyPerHour' | 'needsProfile' };
 
 export interface RunRow {
   ticketId: string | null;
