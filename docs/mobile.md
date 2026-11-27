@@ -28,7 +28,7 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
     `view.snapshot`) and the current one, using `game.alpha`. This is render-only, so 90 and
     120 Hz screens stay smooth.
   - `visibilitychange` (hidden), `blur` and `pagehide` call `game.suspend()`.
-  - Audio unlocks on the first tap.
+  - Audio unlocks on the first tap (see Sound below).
 - **Seeds:** `getRunSpec(mode, practice, ticket)` in `run-spec.ts` is the only place a round's seed
   is chosen.
   - Ranked rounds use a server ticket (step 2, `docs/server.md`).
@@ -102,6 +102,29 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
 - **Rendering only:** tiers never touch the sim, so runs replay identically on every tier.
 - **Budget (same as VR):** under 50 draw calls (the page uses 8–12; 8 on low), no shadows, no
   post-processing, Lambert/Basic materials.
+
+### Sound (`src/mobile/sound/`; VR keeps `src/scene/audio.ts`)
+
+- Synthesised with Web Audio: no audio files, no dependencies. Joud's rule: percussion and
+  effects only, no melody and no instruments.
+- `director.ts` maps a frame's `game.events` (plus the obstacle points gained) to sounds and
+  vibration: flap (a whoosh, ±3% pitch; the voice is a setting for future flap-sound items),
+  +1/+2 a pop (±3%), +3 tek-tek-doum, +5 a longer roll, flower a sparkle, hit a soft thump with a
+  tek roll, new best a drum flourish ending on a doum. The core never knows sound exists.
+- Vibration (Android only) on hit, new best and +5. Never on flap.
+- Two switches, «المؤثرات» (effects and vibration) and «الإيقاع» (percussion layer), in
+  `localStorage`. An old `muted = 1` turns both off; `?mute=1` starts both off.
+- The iPhone silent switch is respected (`navigator.audioSession.type = 'ambient'` where
+  supported). The context resumes on the next tap after an interruption, and suspends when the
+  page is hidden.
+- Master gain → limiter (`DynamicsCompressorNode`) → speakers. Loudness lives in `LOUD`
+  (`voices.ts`). `npm run sound:samples` renders every sound and the 20-second percussion preview
+  to `.tmp/sound/*.wav` and prints peak and loudest-50-ms levels (`SOUND_CHROMIUM` picks a
+  Chromium binary).
+- The percussion layer (`percussion.ts`: frame drum from score 10, maqsum darbuka from 25, 96 BPM)
+  is only in the debug sampler for now: `?debug=1&sounds=1` shows a button per sound.
+- `check:mobile` keeps the eager sound code at most 4 kB gzip and the percussion layer and the
+  sampler out of the first load.
 
 ### Practice
 - Same ruleset, a fresh random seed every round.

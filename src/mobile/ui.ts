@@ -3,6 +3,7 @@
 
 import { MODES, type Mode } from '../core/config';
 import type { Game } from '../core/game';
+import type { SoundSettings } from './sound/settings';
 import { M } from './strings';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
@@ -19,7 +20,7 @@ export interface UiHandlers {
   onResume(): void;
   onAgain(): void;
   onHome(): void;
-  onMute(): void;
+  onSound(which: keyof SoundSettings): void;
   onBoard(): void;
   onNames(): void;
   onBack(): void;
@@ -41,7 +42,7 @@ export interface BoardView {
 export interface UiContext {
   mode: Mode;
   practice: boolean;
-  muted: boolean;
+  sound: Readonly<SoundSettings>;
   /** Best ranked score in this mode on this device. */
   best: number;
   /** The last round was a practice round. */
@@ -133,7 +134,8 @@ export class MobileUi {
     $('paused-home-btn').addEventListener('click', () => h.onHome());
     $('again-btn').addEventListener('click', () => h.onAgain());
     $('over-home-btn').addEventListener('click', () => h.onHome());
-    $('mute-btn').addEventListener('click', () => h.onMute());
+    $('effects-btn').addEventListener('click', () => h.onSound('effects'));
+    $('percussion-btn').addEventListener('click', () => h.onSound('percussion'));
     $('board-btn').addEventListener('click', () => h.onBoard());
     $('over-board-btn').addEventListener('click', () => h.onBoard());
     $('name-btn').addEventListener('click', () => h.onNames());
@@ -202,7 +204,8 @@ export class MobileUi {
       for (const [m, b] of this.modeButtons) b.setAttribute('aria-pressed', String(m === ctx.mode));
       this.practice.checked = ctx.practice;
       $('home-best').textContent = ctx.practice ? M.practiceHint : M.best(ctx.best);
-      $('mute-btn').textContent = ctx.muted ? M.soundOff : M.soundOn;
+      $('effects-btn').textContent = ctx.sound.effects ? M.effectsOn : M.effectsOff;
+      $('percussion-btn').textContent = ctx.sound.percussion ? M.percussionOn : M.percussionOff;
       $('board-btn').hidden = !ctx.online;
       const nameBtn = $('name-btn');
       nameBtn.hidden = !ctx.online;

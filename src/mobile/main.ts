@@ -7,11 +7,12 @@ import { isMode, type Mode, parseUrl } from '../core/config';
 import { Game } from '../core/game';
 import { type GameCommand, InputBus } from '../core/input';
 import { impactPoints } from '../core/ruleset';
-import { Sfx } from '../scene/audio';
 import type { Net } from './net';
 import { Outbox, RetryLater, Tickets, type Transport } from './online';
 import { getRunSpec, type MobileRunSpec, RULESET, recordRun } from './run-spec';
 import { chooseTier, FrameWatchdog, lowerTier, parseTier, type Tier, TIER_SETTINGS } from './perf';
+import { SoundEngine } from './sound/engine';
+import { loadSoundSettings, saveSoundSetting } from './sound/settings';
 import { M } from './strings';
 import { type BoardView, MobileUi, type Overlay, type OverStatus } from './ui';
 import { MobileView } from './view';
@@ -56,7 +57,11 @@ const game = new Game(RULESET.modes[mode], {
 const bus = new InputBus();
 // ?debug=1 only: the game on window.__joudGame, read by screenshot scripts (e.g. wait for a fork).
 if (url.flags.debug) (window as unknown as { __joudGame?: Game }).__joudGame = game;
-const sfx = new Sfx(url.flags.mute || store.get('muted') === '1');
+const sound = new SoundEngine(loadSoundSettings(store, url.flags.mute));
+// ?debug=1&sounds=1: a panel that plays every sound (lazy, debug only).
+if (url.flags.debug && new URLSearchParams(window.location.search).get('sounds') === '1') {
+  void import('./sound/sampler').then((m) => m.mountSampler(sound));
+}
 
 // ---------- ranked play: server tickets and verified runs (step 2, docs/server.md) ----------
 // Without VITE_SUPABASE_URL / _PUBLISHABLE_KEY (or without a ticket) every round is practice.
@@ -111,7 +116,7 @@ function warmUp(): void {
 
 async function openBoard(): Promise<void> {
   overlay = 'board';
-  sfx.click();
+  sound.tick();
   const cached = boardCache.get(mode);
   if (cached && performance.now() - cached.at < 60_000) return ui.showBoard(mode, cached.view);
   ui.showBoard(mode, { rows: [], me: null, total: null, offline: !navigator.onLine });
@@ -142,7 +147,7 @@ const ui = new MobileUi(
       store.set('mode', m);
       game.configure(RULESET.modes[m], m, loadBest(m));
       view.setConfig(game.cfg);
-      sfx.click();
+      sound.tick();
       if (!practice) void tickets.prefetch(m);
     },
     onPractice(on) {
@@ -166,22 +171,24 @@ const ui = new MobileUi(
       game.toAttract();
       game.best = loadBest(mode);
     },
-    onMute() {
-      store.set('muted', sfx.toggleMute() ? '1' : '0');
+    onSound(which) {
+      sound.set(which, !sound.settings[which]);
+      saveSoundSetting(store, which, sound.settings[which]);
+      sound.tick();
     },
     onBoard: () => void openBoard(),
     onNames() {
       overlay = 'names';
       ui.showNames(nicknameId);
-      sfx.click();
+      sound.tick();
     },
     onBack() {
       overlay = null;
       pendingStart = false;
-      sfx.click();
+      sound.tick();
     },
     onPickName(id) {
-      sfx.click();
+      sound.tick();
       void getNet().then(async (n) => {
         const saved = !!n && (await n.setNickname(id));
         if (saved) {
@@ -287,8 +294,8 @@ function handle(cmd: GameCommand): void {
 // ---------- input ----------
 let audioUnlocked = false;
 function unlockAudio(): void {
-  if (audioUnlocked && sfx.unlocked) return;
-  sfx.unlock();
+  if (audioUnlocked && sound.unlocked) return;
+  sound.unlock();
   audioUnlocked = true;
 }
 
@@ -347,8 +354,13 @@ function autopilotTick(): void {
 
 // ---------- lifecycle ----------
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) game.suspend();
-  else if (online) {
+  if (document.hidden) {
+    game.suspend();
+    sound.suspend();
+    return;
+  }
+  sound.resume();
+  if (online) {
     if (!practice) void tickets.prefetch(mode);
     void outbox.flush();
   }
@@ -356,7 +368,10 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('online', warmUp);
 if (online) window.addEventListener('load', warmUp);
 window.addEventListener('blur', () => game.suspend());
-window.addEventListener('pagehide', () => game.suspend());
+window.addEventListener('pagehide', () => {
+  game.suspend();
+  sound.suspend();
+});
 
 const landscapeQuery = window.matchMedia('(orientation: landscape)');
 const touchQuery = window.matchMedia('(pointer: coarse)');
@@ -397,23 +412,19 @@ function frame(now: number): void {
     switch (e) {
       case 'flap':
         view.bird.onFlap();
-        sfx.flap();
         break;
       case 'score': {
         const d = game.obstaclePoints - lastPoints;
         ui.showPop(`+${d}`);
         view.onScore(game, d);
-        sfx.score(game.field.passed);
         break;
       }
       case 'flower':
         ui.showPop(`+${game.flowers - lastFlowers} ✿`);
         view.onFlower(game);
-        sfx.score(game.field.passed + 2);
         break;
       case 'hit':
         view.bird.onHit();
-        sfx.hit();
         break;
       case 'state':
         if (game.state === 'ready') view.resetInterpolation(game);
@@ -444,6 +455,7 @@ function frame(now: number): void {
         break;
     }
   }
+  sound.frame(game.events, game.obstaclePoints - lastPoints);
   game.events.length = 0;
   lastPoints = game.obstaclePoints;
   lastFlowers = game.flowers;
@@ -453,7 +465,7 @@ function frame(now: number): void {
   ui.update(game, {
     mode,
     practice: game.state === 'attract' ? practice : roundPractice,
-    muted: sfx.muted,
+    sound: sound.settings,
     best: loadBestCached(),
     lastPractice: roundPractice,
     multiplier: (m) => RULESET.multipliers[m],
