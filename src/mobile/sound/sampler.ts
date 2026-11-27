@@ -8,10 +8,11 @@ import { FLAP_VOICES } from './voices';
 
 const CUES: [Cue, string][] = [
   ['flap', 'flap'],
-  ['pop', '+1'],
-  ['roll3', '+3'],
-  ['roll5', '+5'],
-  ['sparkle', 'flower'],
+  ['point', '+1'],
+  ['point2', '+2'],
+  ['point3', '+3'],
+  ['point5', '+5'],
+  ['bloom', 'flower'],
   ['hit', 'hit'],
   ['best', 'new best'],
 ];
@@ -35,11 +36,14 @@ export function mountSampler(sound: SoundEngine): void {
     });
     box.appendChild(b);
   };
-  for (const [cue, label] of CUES) add(label, () => sound.play(cue));
+  // Points climb the chime like a run: each press is the next point.
+  let run = 0;
+  for (const [cue, label] of CUES) add(label, () => sound.play(cue, cue.startsWith('point') ? ++run : run));
+  add('reset run', () => (run = 0));
   add(`flap voice: ${sound.flapVoice}`, () => {
     const i = FLAP_VOICES.indexOf(sound.flapVoice);
     sound.flapVoice = FLAP_VOICES[(i + 1) % FLAP_VOICES.length];
-    box.querySelectorAll('button')[CUES.length].textContent = `flap voice: ${sound.flapVoice}`;
+    box.querySelectorAll('button')[CUES.length + 1].textContent = `flap voice: ${sound.flapVoice}`;
   });
   add('percussion 20 s', () => {
     const k = sound.percussionKit();

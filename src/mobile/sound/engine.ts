@@ -9,7 +9,7 @@ import type { SoundSettings } from './settings';
 import * as V from './voices';
 
 export const MASTER_GAIN = 0.8;
-/** At most this many effects at once; extra flaps and pops are dropped, never crashes. */
+/** At most this many effects at once; extra flaps and chimes are dropped, never crashes. */
 const MAX_VOICES = 10;
 const VOICE_LIFE = 0.45;
 
@@ -24,19 +24,24 @@ export function makeLimiter(ctx: BaseAudioContext): DynamicsCompressorNode {
   return l;
 }
 
-/** Play one cue into a kit. Shared by the engine and the offline renders. */
-export function playCue(k: V.Kit, cue: Cue, t: number, flapVoice: V.FlapVoice, rate: number): void {
+/**
+ * Play one cue into a kit. Shared by the engine and the offline renders. `run`: points so far
+ * this round (the chime climbs with it); `rate`: the ±3% pitch variation.
+ */
+export function playCue(k: V.Kit, cue: Cue, t: number, flapVoice: V.FlapVoice, rate: number, run = 1): void {
   switch (cue) {
     case 'flap':
       return V.flap(k, t, flapVoice, rate);
-    case 'pop':
-      return V.pop(k, t, rate);
-    case 'sparkle':
-      return V.sparkle(k, t, rate);
-    case 'roll3':
-      return V.roll3(k, t);
-    case 'roll5':
-      return V.roll5(k, t);
+    case 'point':
+      return V.point(k, t, V.chimeStep(run));
+    case 'point2':
+      return V.point2(k, t, V.chimeStep(run), rate);
+    case 'point3':
+      return V.point3(k, t, V.chimeStep(run), rate);
+    case 'point5':
+      return V.point5(k, t, V.chimeStep(run), rate);
+    case 'bloom':
+      return V.bloom(k, t, rate);
     case 'hit':
       return V.hit(k, t);
     case 'best':
@@ -52,7 +57,7 @@ export class SoundEngine {
   private kit: V.Kit | null = null;
   private readonly plan: FramePlan = { cues: [], buzz: null };
   private voiceEnds: number[] = [];
-  flapVoice: V.FlapVoice = 'whoosh';
+  flapVoice: V.FlapVoice = 'wings';
 
   constructor(readonly settings: SoundSettings) {}
 
@@ -108,19 +113,22 @@ export class SoundEngine {
     return this.ctx && this.kit && this.percussionBus ? { ...this.kit, out: this.percussionBus } : null;
   }
 
-  /** Sounds and vibration for one frame's game events. */
-  frame(events: readonly GameEvent[], pointsDelta: number): void {
+  /**
+   * Sounds and vibration for one frame's game events. `pointsDelta`: obstacle points gained
+   * this frame; `run`: obstacles passed this round (the chime climbs with it).
+   */
+  frame(events: readonly GameEvent[], pointsDelta: number, run: number): void {
     if (events.length === 0) return;
     const p = planFrame(events, pointsDelta, this.plan);
-    for (const cue of p.cues) this.play(cue);
+    for (const cue of p.cues) this.play(cue, run);
     if (p.buzz && this.settings.effects) vibrate(p.buzz);
   }
 
-  play(cue: Cue): void {
+  play(cue: Cue, run = 1): void {
     const k = this.live();
     if (!k) return;
     const t = k.ctx.currentTime;
-    if (cue === 'flap' || cue === 'pop') {
+    if (cue === 'flap' || cue === 'point') {
       // Drop finished voices, then skip this one if the effects are crowded.
       let n = 0;
       for (const e of this.voiceEnds) if (e > t) this.voiceEnds[n++] = e;
@@ -128,7 +136,7 @@ export class SoundEngine {
       if (this.voiceEnds.length >= MAX_VOICES) return;
       this.voiceEnds.push(t + VOICE_LIFE);
     }
-    playCue(k, cue, t, this.flapVoice, jitter(Math.random()));
+    playCue(k, cue, t, this.flapVoice, jitter(Math.random()), run);
   }
 
   /** Quiet tick for buttons. */

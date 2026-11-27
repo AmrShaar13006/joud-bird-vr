@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameEvent } from '../../core/game';
 import { BUZZ, type FramePlan, jitter, planFrame, scoreCue } from './director';
 import { BAR, BPM, layerFor, MAQSUM, PULSE } from './percussion';
+import { CHIME_STEPS, chimeStep } from './voices';
 import { KEYS, type KeyStore, loadSoundSettings, saveSoundSetting } from './settings';
 
 const plan = (events: GameEvent[], delta = 0): FramePlan => planFrame(events, delta, { cues: [], buzz: null });
@@ -12,8 +13,8 @@ function memStore(init: Record<string, string> = {}): KeyStore & { data: Record<
 }
 
 describe('sound director', () => {
-  it('maps points to pop, short roll and long roll', () => {
-    expect([1, 2, 3, 5].map(scoreCue)).toEqual(['pop', 'pop', 'roll3', 'roll5']);
+  it('maps points to the chime and its bigger versions', () => {
+    expect([1, 2, 3, 5].map(scoreCue)).toEqual(['point', 'point2', 'point3', 'point5']);
   });
 
   it('never vibrates on flap; vibrates on +5, hit and new best only', () => {
@@ -25,8 +26,8 @@ describe('sound director', () => {
     expect(plan(['hit', 'newBest', 'state'])).toEqual({ cues: ['hit', 'best'], buzz: BUZZ.best });
   });
 
-  it('plays one score cue and one flap per frame, plus the sparkle', () => {
-    expect(plan(['flap', 'flap', 'score', 'score', 'flower'], 3).cues).toEqual(['flap', 'roll3', 'sparkle']);
+  it('plays one score cue and one flap per frame, plus the bloom', () => {
+    expect(plan(['flap', 'flap', 'score', 'score', 'flower'], 3).cues).toEqual(['flap', 'point3', 'bloom']);
   });
 
   it('ignores events with no sound', () => {
@@ -80,5 +81,16 @@ describe('percussion layer', () => {
     expect(MAQSUM).toMatch(/^[DT.]{8}$/);
     expect(PULSE).toMatch(/^[F.]{8}$/);
     expect(BAR * 8).toBeCloseTo(20);
+  });
+});
+
+describe('score chime', () => {
+  it('climbs the old pentatonic steps with the run, then starts again', () => {
+    expect(chimeStep(1)).toBe(1);
+    expect(chimeStep(4)).toBeCloseTo(Math.pow(2, 7 / 12));
+    expect(chimeStep(11)).toBeCloseTo(4);
+    expect(chimeStep(12)).toBe(1);
+    expect(chimeStep(0)).toBe(1);
+    expect(CHIME_STEPS).toEqual([0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24]);
   });
 });

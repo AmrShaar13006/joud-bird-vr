@@ -3,7 +3,7 @@
 
 import type { GameEvent } from '../../core/game';
 
-export type Cue = 'flap' | 'pop' | 'roll3' | 'roll5' | 'sparkle' | 'hit' | 'best';
+export type Cue = 'flap' | 'point' | 'point2' | 'point3' | 'point5' | 'bloom' | 'hit' | 'best';
 
 /** Android vibration patterns (ms on, off, on…). Never on flap. */
 export const BUZZ = {
@@ -17,9 +17,9 @@ export interface FramePlan {
   buzz: readonly number[] | null;
 }
 
-/** +1/+2 pop, +3 a short roll, +5 (or more) a longer roll. */
+/** +1 the chime, +2 with a glint, +3 with Joud's tweet, +5 (or more) with a trill. */
 export function scoreCue(points: number): Cue {
-  return points >= 5 ? 'roll5' : points >= 3 ? 'roll3' : 'pop';
+  return points >= 5 ? 'point5' : points >= 3 ? 'point3' : points >= 2 ? 'point2' : 'point';
 }
 
 /**
@@ -42,7 +42,7 @@ export function planFrame(events: readonly GameEvent[], pointsDelta: number, out
         if (pointsDelta >= 5 && !out.buzz) out.buzz = BUZZ.plus5;
         break;
       case 'flower':
-        out.cues.push('sparkle');
+        out.cues.push('bloom');
         break;
       case 'hit':
         out.cues.push('hit');

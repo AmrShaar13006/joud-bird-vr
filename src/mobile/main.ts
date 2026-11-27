@@ -455,7 +455,7 @@ function frame(now: number): void {
         break;
     }
   }
-  sound.frame(game.events, game.obstaclePoints - lastPoints);
+  sound.frame(game.events, game.obstaclePoints - lastPoints, game.field.passed);
   game.events.length = 0;
   lastPoints = game.obstaclePoints;
   lastFlowers = game.flowers;

@@ -27,23 +27,38 @@ const code = (Array.isArray(bundle) ? bundle : [bundle]).flatMap((o) => o.output
 
 // name → seconds and what plays (cue names from director.ts; `at` in seconds; `rate` pitch factor).
 const SAMPLES = {
-  'flap-whoosh': { dur: 0.5, play: [{ cue: 'flap', voice: 'whoosh' }] },
-  'flap-blip': { dur: 0.5, play: [{ cue: 'flap', voice: 'blip' }] },
-  'point-pop': { dur: 0.4, play: [{ cue: 'pop' }] },
-  'point-pop-x5-variation': { dur: 1.6, play: [0.97, 1.0, 1.03, 0.985, 1.015].map((rate, i) => ({ cue: 'pop', at: i * 0.28, rate })) },
-  'plus3-roll': { dur: 0.8, play: [{ cue: 'roll3' }] },
-  'plus5-roll': { dur: 1.0, play: [{ cue: 'roll5' }] },
-  'flower-sparkle': { dur: 0.6, play: [{ cue: 'sparkle' }] },
-  'hit': { dur: 0.9, play: [{ cue: 'hit' }] },
-  'new-best': { dur: 1.8, play: [{ cue: 'best' }] },
-  'hit-then-new-best': { dur: 2.0, play: [{ cue: 'hit' }, { cue: 'best' }] },
+  'flap-wings': { dur: 0.4, play: [{ cue: 'flap', voice: 'wings' }] },
+  'flap-wings-x4': { dur: 1.3, play: [0.98, 1.02, 0.97, 1.01].map((rate, i) => ({ cue: 'flap', at: i * 0.3, rate })) },
+  'flap-blip-old': { dur: 0.4, play: [{ cue: 'flap', voice: 'blip' }] },
+  'point-1-chime': { dur: 0.6, play: [{ cue: 'point' }] },
+  'run-12-points-climbing': { dur: 4.6, play: Array.from({ length: 12 }, (_, i) => ({ cue: 'point', at: i * 0.35, run: i + 1 })) },
+  'point-2': { dur: 0.7, play: [{ cue: 'point2' }] },
+  'point-3-tweet': { dur: 0.7, play: [{ cue: 'point3' }] },
+  'point-5-trill': { dur: 0.9, play: [{ cue: 'point5' }] },
+  'flower-bloom': { dur: 0.6, play: [{ cue: 'bloom' }] },
+  'hit': { dur: 0.8, play: [{ cue: 'hit' }] },
+  'new-best': { dur: 1.6, play: [{ cue: 'best' }] },
+  'hit-then-new-best': { dur: 1.7, play: [{ cue: 'hit' }, { cue: 'best' }] },
   'button-tick': { dur: 0.2, play: [{ cue: 'tick' }] },
   'stress-overlap': {
-    dur: 2.2,
+    dur: 2.0,
     play: [
-      { cue: 'flap' }, { cue: 'pop', at: 0.01 }, { cue: 'flap', at: 0.05 }, { cue: 'roll5', at: 0.06 },
-      { cue: 'sparkle', at: 0.08 }, { cue: 'flap', at: 0.1 }, { cue: 'hit', at: 0.12 }, { cue: 'best', at: 0.12 },
+      { cue: 'flap' }, { cue: 'point', at: 0.01 }, { cue: 'flap', at: 0.05 }, { cue: 'point5', at: 0.06 },
+      { cue: 'bloom', at: 0.08 }, { cue: 'flap', at: 0.1 }, { cue: 'hit', at: 0.12 }, { cue: 'best', at: 0.12 },
     ],
+  },
+  // A short round as a player hears it: flaps, points climbing, +3, a flower, +5, crash, new best.
+  'round-demo': {
+    dur: 9.5,
+    play: (() => {
+      const out = [];
+      for (let i = 0; i < 24; i++) out.push({ cue: 'flap', at: i * 0.32 + (i % 3) * 0.04, rate: 0.97 + ((i * 7) % 6) / 100 });
+      const pts = [['point', 0.8], ['point', 1.6], ['point3', 2.4], ['point', 3.2], ['bloom', 3.5], ['point2', 4.0], ['point', 4.8], ['point5', 5.6], ['point', 6.4], ['point', 7.2]];
+      let run = 0;
+      for (const [cue, at] of pts) out.push({ cue, at, run: cue === 'bloom' ? run : ++run });
+      out.push({ cue: 'hit', at: 7.75 }, { cue: 'best', at: 7.75 });
+      return out;
+    })(),
   },
   'percussion-preview-20s': { dur: 20.5, preview: true },
 };
@@ -66,7 +81,7 @@ for (const [name, spec] of Object.entries(SAMPLES)) {
         if (spec.preview) S.schedulePreview(kit, LEAD);
         for (const p of spec.play ?? []) {
           if (p.cue === 'tick') S.tick(kit, LEAD + (p.at ?? 0));
-          else S.playCue(kit, p.cue, LEAD + (p.at ?? 0), p.voice ?? 'whoosh', p.rate ?? 1);
+          else S.playCue(kit, p.cue, LEAD + (p.at ?? 0), p.voice ?? 'wings', p.rate ?? 1, p.run ?? 1);
         }
         return (await ctx.startRendering()).getChannelData(0).subarray(Math.round(LEAD * RATE));
       }
