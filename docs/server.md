@@ -4,6 +4,12 @@ Ranked phone runs are verified on the server: Supabase (Postgres plus Edge Funct
 issues every ranked round's seed and replays the submitted flaps with the same sim the phones
 run. Practice and the VR pages never talk to it. The plan is in `prompts/06-mobile-step2.md`.
 
+**Accounts (phase 3, from `20261127120000_accounts.sql`):** only students signed up with a YU
+email and a passcode play ranked rounds. Guests never reach the server. The anonymous sign-in
+described under "Phone side" below is what the phone still does until the accounts phone PR
+lands; the server already refuses those sessions a ticket (`needsProfile`). Officer tasks:
+`docs/accounts-runbook.md`.
+
 ## Projects
 | | project | ref | region |
 |---|---|---|---|
@@ -14,42 +20,81 @@ run. Practice and the VR pages never talk to it. The plan is in `prompts/06-mobi
   (pause, delete or upgrade), then the same migrations and functions are applied there.
 - **Region:** Supabase offers no Middle East region. Mumbai is one of the closest to Riyadh.
 - **Auth settings** (dashboard, per project, done by Amr):
-  - Enable **anonymous sign-ins**.
-  - Raise the anonymous sign-in rate limit, which is 30 per hour per IP by default. Phones on
-    one event Wi-Fi share an IP.
+  - **Anonymous sign-ins:** off.
+  - **Allow new users to sign up:** off. Accounts are made only by the `sign-up` function
+    through the admin API, which this switch doesn't block.
+  - **Confirm email:** off. No email is ever sent.
+  - **Minimum password length:** 6 (passcodes are 6–12 digits).
+  - **Sign-in rate limit:** raised only as far as about 20 phones signing in on one Wi-Fi need,
+    since a higher limit also allows more passcode guesses per address.
 
 ## What we store, and why
 | table | row | personal data |
 |---|---|---|
-| `auth.users` | an anonymous user per phone (Supabase Auth) | none: no email, phone or name |
-| `nicknames` | the fixed list of 24 Arabic nicknames | none |
-| `profiles` | user id → nickname id plus a random 2-digit tag («وردة 27») | none |
+| `auth.users` | a student: YU email, the passcode as a bcrypt hash (Supabase Auth) | the email, which holds the student ID |
+| `students` | enrolment year (from the email), gender, college, major, Interlink; `complete` once all are set | yes |
+| `participations` | one row per student per event: college, major and Interlink in that event | yes |
+| `profiles` | the public name as ids: noun, adjective, 2-digit tag («وردة مشرقة 27»), renames today | none |
+| `nicknames`, `adjectives` | the name lists; nouns marked masculine or feminine, `active` to retire one | none |
+| `colleges`, `majors` | the profile lists as codes (BUS, BUS-ACC…) with Arabic and English labels | none |
+| `events` | one row per campaign: dates, `impact_per_riyal` (100), `riyal_cap` (1,000), `active` | none |
 | `run_tickets` | a server-issued seed per ranked round: ruleset, mode, seed, issued/expires/used times | none |
 | `runs` | every submission, valid or not: flap ticks, end tick, the verified result, reason codes | none |
 
-- **Not stored:** IP addresses, device fingerprints, analytics, or free text.
-- **Delete:** deleting an anonymous user deletes their profile, tickets and runs (cascade).
-- **Cleanup:** anonymous users aren't removed automatically. Delete old ones with the SQL in the
-  Supabase docs ("Anonymous sign-ins → Automatic cleanup").
+- **Not stored:** real names, IP addresses, device fingerprints, analytics, or free text. Winners
+  give their full name on the club's prize form at the final.
+- **Passcodes:** only Supabase Auth's bcrypt hash. Never in our tables, logs or code.
+- **Delete an account** (`delete-account`, or an officer with `scripts/admin/accounts.ts`): the
+  student row, participations, profile and tickets go; runs stay with `user_id` null, so the
+  impact total never drops. The leaderboard skips runs without a user.
+- **Deletion date:** all student data 12 months after launch, unless Student Affairs approves
+  longer (`docs/accounts-runbook.md`).
 
 ## Access (row-level security)
-- **Players** (the `authenticated` role, which anonymous users also get):
-  - read their own profile, tickets and runs
-  - create their own profile
-  - change only `profiles.nickname_id`
-- **Players never write tickets or runs.** Only the Edge Functions do, with the service role,
+| | public (anon key) | the student | named officers |
+|---|---|---|---|
+| public name, best score, rank | yes, through `get_leaderboard` | yes | yes |
+| email | no | own (`get_me`) | dashboard, `winner_contacts` |
+| college, major, Interlink, gender, enrolment year | no | own | dashboard |
+| passcode | no | no | no |
+
+- **Officers** are the people Amr adds to the Supabase organisation by name. Dashboard access is
+  full access, so the list stays short. Phase 7 adds aggregate-only views.
+- **Students** (the `authenticated` role, which old anonymous sessions also have):
+  - read their own profile, student row, participations, tickets and runs
+  - write nothing directly: the profile goes through `save_profile`, the name through `claim_name`
+- **Public lists** (`nicknames`, `adjectives`, `colleges`, `majors`, `events`): readable by anyone.
+- **Students never write tickets or runs.** Only the Edge Functions do, with the service role,
   through two `security definer` SQL functions:
-  - `issue_ticket`: rate limits of 3 open tickets per player and 120 per hour, under a per-player
-    advisory lock.
+  - `issue_ticket`: `needsProfile` unless the player has a complete student row and a name; then
+    rate limits of 3 open tickets per player and 120 per hour, under a per-player advisory lock.
+    It also writes the active event's participation row on the first ranked ticket.
   - `record_run`: consumes the ticket in the same transaction as the insert. A ticket that is
     already used turns the run into `ticketUsed`.
 
   `issue_ticket` and `record_run` can be executed by `service_role` only.
 - **Public read functions** (the API is `/rest/v1/rpc/…`):
-  - `get_leaderboard(mode, ruleset = 'mobile-1', limit = 20)`: rank, «nickname tag», best score
-    and when it was reached. Ties go to whoever got there first. Callable by anyone.
-  - `get_impact_total()`: the sum of `impact` over valid runs. Callable by anyone.
-  - `get_my_best(mode, ruleset)`: your rank and best. Signed-in players only.
+  - `get_leaderboard(mode, ruleset = 'mobile-1', limit = 20)`: rank, the public name (column
+    `nickname`), best score and when it was reached. Only students with a complete profile and a
+    name. Ties go to whoever got there first. Callable by anyone.
+  - `get_impact_total()`: the sum of `impact` over valid runs, including deleted accounts' runs.
+    Callable by anyone.
+- **Student functions** (signed in; errors are raised with a reason code as the message, HTTP 400):
+  - `save_profile(college, major, interlink, gender)`: the major must belong to the college and
+    both must be active (`badProfile`). Also updates the active event's participation.
+  - `claim_name(nickname_id, adjective_id, tag)`: the ids must be active and the tag 10–99
+    (`badName`). A name someone holds fails on the unique index: **HTTP 409**. The first claim is
+    free; then at most 5 changes a day, Riyadh time (`tooManyRenames`). Claiming your current
+    name again is a no-op.
+  - `get_me()`: email, enrolment year, profile, `profileComplete`, `name`, `renamesLeft`.
+  - `get_my_best(mode, ruleset)`: your rank, best and name.
+  - Without a student row (an old anonymous session): `needsAccount`.
+- **Names are spelled only on the server** (`name_label`): noun, the adjective in the noun's form,
+  the tag. The phone sends ids, never text. Every pair for review: `docs/name-pairs.txt`
+  (`node scripts/run-ts.mjs scripts/print-name-pairs.ts`).
+- **Service role only:** `sign_up_allowed()` (at most 30 new accounts a minute project-wide),
+  `create_account(user, enrol_year)`, `winner_contacts(mode, ruleset, limit)`. Internal helpers
+  `name_label` and `ranked_best` can't be called through the API at all.
 
   The Supabase security advisor flags the two public ones as "security definer functions callable
   by anon". That is intended: they expose only nicknames, scores and one total.
@@ -58,7 +103,9 @@ run. Practice and the VR pages never talk to it. The plan is in `prompts/06-mobi
 | function | auth | what |
 |---|---|---|
 | `sim-selftest` | anon JWT | Replays fixture files posted in the body. **Staging only**: replays cost CPU. |
-| `issue-run` | player JWT | `POST { mode }` → a ticket: ruleset `mobile-1`, a uint32 seed from `crypto.getRandomValues`, 30 min to live. Returns 429 (`tooManyOpen` / `tooManyPerHour`) past the limits. |
+| `sign-up` | none (deploy with **verify_jwt off**: a guest has no session) | `POST { email, passcode }` → a confirmed account and its student row, then the phone signs in with the same pair. 400 `badEmail` / `badYear` / `badPasscode` / `weakPasscode`, 409 `emailTaken`, 429 `tooMany`. If the student row fails, the new user is deleted again. |
+| `delete-account` | player JWT | `POST {}` → deletes the caller's account (admin API). Runs stay without a user. |
+| `issue-run` | player JWT | `POST { mode }` → a ticket: ruleset `mobile-1`, a uint32 seed from `crypto.getRandomValues`, 30 min to live. 403 `needsProfile` without a complete profile and a name; 429 (`tooManyOpen` / `tooManyPerHour`) past the limits. |
 | `submit-run` | player JWT | `POST { ticketId, flaps, endTick, clientScore }` → the server's own result. |
 
 - The functions use `supabase/functions/_shared/joud-sim.js`, the committed sim bundle from
@@ -84,10 +131,28 @@ run. Practice and the VR pages never talk to it. The plan is in `prompts/06-mobi
 Every rejection is stored with its reason, and the reply is 200 `{ valid: false, reason }`.
 Malformed bodies get 400, a missing player 401, server errors 500 (the phone retries those).
 
-**Tests:** `deno test --config supabase/functions/deno.json --allow-read=. supabase/functions` (11
-tests, fake database, no network). Every playable `mobile-1` fixture verifies through
-`submit-run`, and every rejection has its own test. They also run as a row in
-`npm run test:determinism`.
+**Sign-up rules** (`_shared/account-rules.ts`, no imports): the phone imports the same file, so
+the browser and the server check the same thing.
+- Email: trimmed, lower case, direction marks removed, Arabic-Indic digits made Latin, then
+  `^(20\d{2})\d{5}@yu\.edu\.sa$` with the year from `MIN_ENROL_YEAR` (2022) to the current year
+  in Riyadh.
+- Passcode: the same digit normalization, 6–12 digits, not one repeated digit and not a straight
+  run (123456, 987654). The phone must send the normalized passcode at every sign-in too.
+
+**Tests:**
+- `deno test --config supabase/functions/deno.json --allow-read=. supabase/functions` (17 tests,
+  fake database and Auth, no network). Every playable `mobile-1` fixture verifies through
+  `submit-run`, every rejection has its own test, and every sign-up outcome too. They also run
+  as a row in `npm run test:determinism`.
+- `src/mobile/account-rules.test.ts` (Vitest, in `npm test`): the email and passcode rules.
+- SQL (`supabase/tests/`, 36 checks): the migrations on a throwaway local Postgres with a small
+  Supabase stand-in. With `psql` pointed at an empty database:
+  ```
+  for f in supabase/tests/stub.sql supabase/migrations/20261124*.sql supabase/tests/legacy.sql \
+           supabase/migrations/20261127*.sql supabase/tests/accounts.test.sql; do
+    psql -X -q -v ON_ERROR_STOP=1 -f "$f" || break; done
+  ```
+  It ends with `ALL SQL CHECKS PASSED`.
 
 **Live checks on staging, 24 Nov** (SQL with a temporary test user, then deleted):
 - The 4th open ticket was refused.
@@ -137,9 +202,10 @@ tests, fake database, no network). Every playable `mobile-1` fixture verifies th
 - **Functions:** deploy each folder in `supabase/functions/` together with `_shared/`.
 - **Order for production:**
   1. migrations
-  2. `issue-run` and `submit-run` (not `sim-selftest`)
+  2. `issue-run`, `submit-run`, `delete-account` and `sign-up` (verify_jwt off), not `sim-selftest`
   3. the auth settings above
   4. Vercel env vars `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`
+- Sign-up stays off in production until Student Affairs approves the data collection.
 
 ## Abuse model
 - **Prevented:**
@@ -150,4 +216,13 @@ tests, fake database, no network). Every playable `mobile-1` fixture verifies th
   - A wall-clock check (PR 6) stops simulated-faster-than-real runs.
   - The rate limits slow down mass play.
   - The leaderboard is for fun, and the impact total is symbolic.
+- **Accounts:**
+  - **Guessing a passcode online:** 1,000,000 codes against Supabase's per-address sign-in limit.
+    A winner must also hold the YU mailbox the club writes to.
+  - **A database leak:** bcrypt on 6 digits falls quickly, so only the service role and named
+    officers can read `auth.users`, and the sign-up screen warns against reusing a bank or phone PIN.
+  - **Made-up student IDs:** possible, since no email is sent. The 30-a-minute cap limits volume;
+    a fake can top the board but can't win, because nobody answers the club's email.
+  - **A classmate's email registered first:** the student writes to the club and an officer
+    deletes the squatter (`docs/accounts-runbook.md`).
 - **Not used:** IP logs, device fingerprints, CAPTCHA (it would mean a third-party script).
