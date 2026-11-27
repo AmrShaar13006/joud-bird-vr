@@ -50,7 +50,7 @@ let failed = 0;
 function check(label, ok, got) {
   if (!ok) failed++;
   const shown = JSON.stringify(got, (k, v) => (/token/i.test(k) ? '<hidden>' : v));
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}  ->  ${shown.length > 300 ? shown.slice(0, 300) + '…' : shown}`);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}  ->  ${shown.length > 300 ? shown.slice(0, 300) + '...' : shown}`);
 }
 const errOf = (r) => r.body?.error_code ?? r.body?.error ?? r.body?.code ?? r.body?.message ?? r.body?.msg;
 const brief = (r) => ({ status: r.status, error: errOf(r) });
@@ -77,9 +77,9 @@ async function main() {
   if (r.status !== 200) return;
   r = await fn('sign-up', { email: EMAIL, passcode: PASS });
   check('sign-up refuses the same email again', r.status === 409 && r.body?.error === 'emailTaken', brief(r));
-  const typed = ` ${EMAIL.toUpperCase().replace(/\d/g, (d) => String.fromCharCode(0x0660 + Number(d)))}‏`;
+  const typed = ` ${EMAIL.toUpperCase().replace(/\d/g, (d) => String.fromCharCode(0x0660 + Number(d)))}${String.fromCharCode(0x200f)}`;
   r = await fn('sign-up', { email: typed, passcode: PASS });
-  check('…also typed in capitals with Arabic digits', r.status === 409 && r.body?.error === 'emailTaken', brief(r));
+  check('...also typed in capitals with Arabic digits', r.status === 409 && r.body?.error === 'emailTaken', brief(r));
 
   // C. Sign in with the same pair.
   r = await call('POST', '/auth/v1/token?grant_type=password', { body: { email: EMAIL, password: PASS } });
