@@ -15,7 +15,7 @@ import {
 import { KINDS } from '../core/ruleset';
 import { ATLAS_COLS, ATLAS_ROWS, boxTile, tileRect, WORD_TILES, wordColumn } from './box-art';
 import { BADGE_COLS, BADGE_ROWS, badgeKey, badgeLabel, badgeRect, cueFor, SPARKLE_TILE } from './cues';
-import { laneFrame, parseBirdScale } from './view';
+import { laneFrame, parseBirdScale } from './game-backdrop';
 
 describe('obstacle cues', () => {
   const pts = MOBILE1.points;

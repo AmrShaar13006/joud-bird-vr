@@ -16,7 +16,8 @@ import { getRunSpec, type MobileRunSpec, RULESET, recordRun } from './run-spec';
 import { chooseTier, FrameWatchdog, lowerTier, parseTier, type Tier, TIER_SETTINGS } from './perf';
 import { M } from './strings';
 import { type BoardView, MobileUi, type Overlay, type OverStatus } from './ui';
-import { MobileView, parseBirdScale } from './view';
+import { MobileView } from './view';
+import { parseBirdScale } from './game-backdrop';
 
 // ---------- settings ----------
 const url = parseUrl(window.location.search); // flags and ?mode= only: ranked rules never take URL tuning
