@@ -10,6 +10,13 @@
 //      &sockets=1 (show the customization sockets)  &blink=1  &ui=0 (no controls, for shots)
 //      &status=1 (a one-line caption of what is playing, for recordings)
 //      &tilt=0..15 (game view: the presentation tilt towards the camera, degrees; 14 by default)
+// Game view tests (Amr, 28 Nov 2026):
+//      &bg=game (the game's own sky, plaza and ground behind the bird, and the game camera's
+//               frame for the window: at 390 x 844 it is a phone's screen)
+//      &bg=key (flat magenta in the same frame, so scripts can cut the bird out: model-tests.ts)
+//      &birdScale=1.15 (the drawn bird only, as ?debug=1&birdScale= in the game; 0.5 to 2)
+//      &turn=-45 (the bird's turn about Y, degrees; bird.ts uses -55)
+//      &laneY=0.6 (stills and single clips: height in the lane, lane units, 0 = centre)
 // Screenshot scripts drive it through window.__joudModel (scripts/model-shots.ts,
 // scripts/model-anim.ts).
 //
@@ -70,6 +77,15 @@ import refPoster from '../../docs/references/joud_ref_flying_poster_crop.png?url
 import refSide from '../../docs/references/joud_ref_slim_side.png?url';
 import { type Body, flap as coreFlap, integrate } from '../core/physics';
 import { MOBILE1 } from '../core/ruleset';
+import type { addGameBackdrop, gameBackground, laneFrame, parseBirdScale } from './game-backdrop';
+
+/** The game's backdrop code (game-backdrop.ts), handed over by model-gate.ts: this chunk cannot import it. */
+export interface GameBackdropCode {
+  addGameBackdrop: typeof addGameBackdrop;
+  gameBackground: typeof gameBackground;
+  laneFrame: typeof laneFrame;
+  parseBirdScale: typeof parseBirdScale;
+}
 
 export const STILLS = ['folded', 'spread'] as const;
 export const CLIPS = ['idle', 'flap', 'glide', 'fall', 'crash'] as const;
@@ -80,6 +96,7 @@ export type Clip = (typeof CLIPS)[number];
 export type Pose = (typeof POSES)[number];
 export type View = (typeof VIEWS)[number];
 export type Look = (typeof LOOKS)[number];
+export type Background = 'plain' | 'game' | 'key';
 
 export interface ModelInfo {
   model: string;
@@ -96,6 +113,10 @@ export interface ModelInfo {
   clips: { name: string; duration: number; loop: boolean }[];
   /** PRESENT_TILT: the lean the game view shows by default, degrees. */
   presentTilt: number;
+  /** FACING_TURN: the game's turn of the bird about Y, degrees. */
+  facingTurn: number;
+  /** The game view's test settings now. */
+  game: { bg: Background; birdScale: number; turn: number; laneY: number };
 }
 
 /** What is playing now (the still poses report clip ''). */
@@ -134,6 +155,14 @@ export interface ModelApi {
     manual?: boolean;
     /** Game view: degrees the bird leans towards the camera (0 to 15). */
     tilt?: number;
+    /** Game view: the game's own backdrop and frame, flat magenta in that frame (key), or the plain background. */
+    bg?: Background;
+    /** Game view: size of the drawn bird (0.5 to 2). */
+    birdScale?: number;
+    /** Game view: the bird's turn about Y, degrees (-90 to 0). */
+    turn?: number;
+    /** Game view, stills and single clips: height in the lane, lane units. */
+    laneY?: number;
     status?: boolean;
   }): void;
   info(): ModelInfo;
@@ -156,13 +185,14 @@ interface JoudExtras {
 
 const DEG = Math.PI / 180;
 const BG = '#e9eef5';
+const KEY = '#ff00ff'; // &bg=key: no colour of Joud's is near it
 const OUTLINE = '#3b2a20';
 const OUTLINE_WIDTH = 0.011; // model units (the game draws Joud at 0.2 scale)
 const SWATCH_V = 0.035; // build_joud.py: 1 - ATLAS_FIT
 
 // --- how the game shows and moves the bird ----------------------------------------------------------
 const GAME = MOBILE1.modes.normal;
-const FACING_Y = -55 * DEG; // bird.ts: the model faces left and a little towards the camera
+export const FACING_TURN = -55; // degrees, bird.ts: the model faces left and a little towards the camera
 const TILT_MAX = 30; // bird.ts: degrees of root tilt at vy = +-flapVelocity
 const SQUASH = { wide: 0.1, flat: 0.18, fade: 8 }; // bird.ts: the root's squash on a flap
 export const PRESENT_TILT = 14; // degrees towards the camera, on a wrapper above the root (not in bird.ts yet)
@@ -170,6 +200,9 @@ export const PRESENT_TILT = 14; // degrees towards the camera, on a wrapper abov
 const MODEL_UNIT = 0.2 * (GAME.birdRadius / 0.12);
 const GAME_HALF_HEIGHT = 4.5; // model units the game view shows above and below its centre
 const RULER_STEP = 3; // model units between the game view's guide lines
+const LANE_Y_MAX = GAME.laneH / 2 - GAME.birdRadius; // lane units: the highest and lowest the hitbox reaches
+const clampTurn = (v: number): number => (Number.isFinite(v) ? Math.max(-90, Math.min(0, v)) : FACING_TURN);
+const clampLaneY = (v: number): number => (Number.isFinite(v) ? Math.max(-LANE_Y_MAX, Math.min(LANE_Y_MAX, v)) : 0);
 
 // --- how the clips follow each other (Amr, 27 Nov 2026) -----------------------------------------------
 const FADE = 0.08; // seconds: every cross-fade ...
@@ -224,6 +257,11 @@ function cameraFor(view: View, pose: Pose): { az: number; el: number; dist: numb
   }
 }
 
+/** The size and turn buttons step through the values of the 28 Nov tests. */
+const SIZES = [1, 1.15, 1.3];
+const TURNS = [FACING_TURN, -45, -40];
+const cycle = (list: number[], v: number): number => list[(list.indexOf(v) + 1) % list.length];
+
 function pick<T extends string>(list: readonly T[], v: string | null, fallback: T): T {
   return list.includes(v as T) ? (v as T) : fallback;
 }
@@ -264,7 +302,7 @@ function hLines(ys: number[], halfWidth: number, colour: string): LineSegments {
   return lines;
 }
 
-export async function startModelView(): Promise<void> {
+export async function startModelView(lane: GameBackdropCode): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const modelName = params.get('model') === 'v1' ? 'v1' : 'v2';
   let pose: Pose = pick(POSES, params.get('pose'), 'folded');
@@ -277,6 +315,10 @@ export async function startModelView(): Promise<void> {
   let status = params.get('status') === '1';
   const tiltParam = Number(params.get('tilt') ?? PRESENT_TILT);
   let presentTilt = Number.isFinite(tiltParam) ? Math.max(0, Math.min(15, tiltParam)) : PRESENT_TILT;
+  let bg: Background = pick(['plain', 'game', 'key'] as const, params.get('bg'), 'plain');
+  let birdScale = lane.parseBirdScale(params.get('birdScale'));
+  let turn = clampTurn(Number(params.get('turn') ?? FACING_TURN));
+  let laneY = clampLaneY(Number(params.get('laneY') ?? 0));
   let manual = false; // recordings: time moves only through api.step() and api.seek()
   let zoom = 1; // close-ups for screenshots: the camera's distance is divided by this
   let aim: [number, number, number] | null = null; // look at this point instead of the view's own
@@ -328,7 +370,7 @@ export async function startModelView(): Promise<void> {
     ready: false,
     error: '',
     set: () => {},
-    info: () => ({ model: modelName, pose, view, look, ref: showRef, calls: 0, triangles: 0, fps: 0, bytes, joints: [], sockets: [], clips: [], presentTilt: PRESENT_TILT }),
+    info: () => ({ model: modelName, pose, view, look, ref: showRef, calls: 0, triangles: 0, fps: 0, bytes, joints: [], sockets: [], clips: [], presentTilt: PRESENT_TILT, facingTurn: FACING_TURN, game: { bg, birdScale, turn, laneY } }),
     anim: () => idleState,
     tap: () => {},
     step: () => {},
@@ -418,6 +460,16 @@ export async function startModelView(): Promise<void> {
   const bounds = hLines([-laneHalf, laneHalf], 40, '#248F59');
   ruler.position.z = bounds.position.z = -5;
   scene.add(ruler, bounds);
+  // &bg=game: the game's own backdrop (game-backdrop.ts, in lane units), scaled to model units and
+  // placed so that the bird, at model x 0, is at the game's birdX. The lane's centre is y 0 in both.
+  const backdrop = new Group();
+  lane.addGameBackdrop(backdrop, GAME.laneH, true);
+  backdrop.scale.setScalar(1 / MODEL_UNIT);
+  backdrop.position.x = -GAME.birdX / MODEL_UNIT;
+  scene.add(backdrop);
+  const plainColour = new Color(BG);
+  const gameColour = lane.gameBackground();
+  const keyColour = new Color(KEY);
 
   // --- still poses -------------------------------------------------------------------------------
   const bind = new Map<string, { p: Vector3; q: Quaternion; s: Vector3 }>();
@@ -616,9 +668,10 @@ export async function startModelView(): Promise<void> {
   function placeStage(dt: number): void {
     const inGame = view === 'game';
     const demo = inGame && pose === 'tap';
-    facing.rotation.y = inGame ? FACING_Y : 0;
+    facing.rotation.y = inGame ? turn * DEG : 0;
+    facing.scale.setScalar(inGame ? birdScale : 1); // as view.ts's birdHolder: the drawn bird only
     const s = demo ? squash : 0;
-    stage.position.y = demo ? body.y / MODEL_UNIT : 0;
+    stage.position.y = demo ? body.y / MODEL_UNIT : inGame ? laneY / MODEL_UNIT : 0;
     stage.rotation.z = -tiltNow() * TILT_MAX * DEG; // facing left: nose up is a clockwise turn
     stage.scale.set(1 + SQUASH.wide * s, 1 - SQUASH.flat * s, 1 + SQUASH.wide * s);
     // lean towards the camera about the root's own place: the root stays where the game put it
@@ -627,8 +680,8 @@ export async function startModelView(): Promise<void> {
     present.rotation.x = lean;
     present.position.set(0, y - y * Math.cos(lean), -y * Math.sin(lean));
     camY += (stage.position.y - camY) * (1 - Math.exp(-dt / 0.09));
-    if (!demo) camY = 0;
-    ruler.visible = bounds.visible = demo;
+    if (!demo) camY = stage.position.y;
+    ruler.visible = bounds.visible = demo && bg === 'plain';
     ruler.position.y = Math.round(camY / RULER_STEP) * RULER_STEP;
   }
 
@@ -655,12 +708,27 @@ export async function startModelView(): Promise<void> {
   const camPos = new Vector3();
   const target = new Vector3();
   function applyView(): void {
+    const framed = view === 'game' && bg !== 'plain'; // the game camera's fixed frame
+    backdrop.visible = view === 'game' && bg === 'game';
+    renderer.setClearColor(!framed ? plainColour : bg === 'game' ? gameColour : keyColour);
     if (view === 'game') {
       // view.ts: the camera looks straight down -Z, and the sun stands up and to the left
-      gameCamera.position.set(0, camY + 0.2, 10);
       gameCamera.rotation.set(0, 0, 0);
       sun.position.set(-1, 2, 3);
       sun.target.position.set(0, 0, 0);
+      if (!framed) {
+        gameCamera.position.set(0, camY + 0.2, 10);
+        return;
+      }
+      // The game camera's fixed frame (view.ts), in model units; a zoom above 1 closes in on the bird.
+      const f = lane.laneFrame(GAME.laneW, GAME.laneH, canvasW, canvasH);
+      const k = 1 / zoom;
+      gameCamera.position.set((-GAME.birdX / MODEL_UNIT) * k, (f.cy / MODEL_UNIT) * k + stage.position.y * (1 - k), 10);
+      gameCamera.right = (f.halfW / MODEL_UNIT) * k;
+      gameCamera.left = -gameCamera.right;
+      gameCamera.top = (f.halfH / MODEL_UNIT) * k;
+      gameCamera.bottom = -gameCamera.top;
+      gameCamera.updateProjectionMatrix();
       return;
     }
     const c = cameraFor(view, pose);
@@ -674,10 +742,14 @@ export async function startModelView(): Promise<void> {
   }
 
   // --- layout and controls ------------------------------------------------------------------------
+  let canvasW = 1;
+  let canvasH = 1;
   function layout(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
     const cw = showRef ? Math.floor(w / 2) : w;
+    canvasW = cw;
+    canvasH = h;
     canvas.style.width = `${cw}px`;
     canvas.style.height = `${h}px`;
     renderer.setSize(cw, h, false);
@@ -749,6 +821,12 @@ export async function startModelView(): Promise<void> {
   for (const v of VIEWS) button(v === 'game' ? 'game view' : v, () => view === v, () => (view = v));
   button(`tilt ${PRESENT_TILT}°`, () => presentTilt > 0, () => (presentTilt = presentTilt > 0 ? 0 : PRESENT_TILT)).title =
     'Game view only: lean the bird towards the camera so the top of the wings shows.';
+  button('game sky', () => bg === 'game', () => (bg = bg === 'game' ? 'plain' : 'game')).title =
+    "Game view only: the game's own sky, plaza and ground, and the game camera's frame.";
+  const sizeButton = button('', () => birdScale !== 1, () => (birdScale = cycle(SIZES, birdScale)));
+  sizeButton.title = 'Game view only: size of the drawn bird (the hitbox does not change).';
+  const turnButton = button('', () => turn !== FACING_TURN, () => (turn = cycle(TURNS, turn)));
+  turnButton.title = "Game view only: the bird's turn about Y (the game uses -55°).";
   gap();
   for (const l of LOOKS) button(l, () => look === l, () => (look = l));
   button('official art', () => showRef, () => (showRef = !showRef));
@@ -763,6 +841,8 @@ export async function startModelView(): Promise<void> {
   });
 
   function refresh(): void {
+    sizeButton.textContent = `size ${birdScale}`;
+    turnButton.textContent = `turn ${turn}°`;
     for (const b of buttons) {
       const on = b.on();
       b.el.style.background = on ? '#248F59' : '#fff';
@@ -818,7 +898,7 @@ export async function startModelView(): Promise<void> {
           : '';
       overlay.textContent =
         `Joud ${modelName}  ${(bytes / 1024).toFixed(0)} KB  fps ${fps}  draw calls ${calls}  tris ${triangles}\n` +
-        `pose ${pose}  view ${view}${view === 'game' ? ` (leaning ${presentTilt} deg towards the camera)` : ''}  look ${look}${look === 'toon' ? ' (proposal, not allowed by CLAUDE.md yet)' : ''}\n` +
+        `pose ${pose}  view ${view}${view === 'game' ? ` (leaning ${presentTilt} deg towards the camera, turned ${turn} deg, size ${birdScale}${bg === 'plain' ? '' : `, ${bg === 'game' ? 'game sky' : 'key'}`})` : ''}  look ${look}${look === 'toon' ? ' (proposal, not allowed by CLAUDE.md yet)' : ''}\n` +
         `bones ${joints.length}  sockets ${sockets.map((s) => s.name.replace('socket_', '')).join(', ')}` +
         (lead ? `\nclip ${playing}  ${a.time.toFixed(2)} / ${lead.action.getClip().duration.toFixed(2)} s` : '') +
         demo;
@@ -837,6 +917,10 @@ export async function startModelView(): Promise<void> {
     if (o.manual !== undefined) manual = o.manual;
     if (o.status !== undefined) status = o.status;
     if (o.tilt !== undefined) presentTilt = Math.max(0, Math.min(15, o.tilt));
+    if (o.bg) bg = o.bg;
+    if (o.birdScale !== undefined) birdScale = lane.parseBirdScale(String(o.birdScale));
+    if (o.turn !== undefined) turn = clampTurn(o.turn);
+    if (o.laneY !== undefined) laneY = clampLaneY(o.laneY);
     if (o.pose) choose(o.pose);
     refresh();
     if (manual) {
@@ -858,6 +942,8 @@ export async function startModelView(): Promise<void> {
     sockets: sockets.map((s) => s.name),
     clips: clipInfo,
     presentTilt: PRESENT_TILT,
+    facingTurn: FACING_TURN,
+    game: { bg, birdScale, turn, laneY },
   });
   api.anim = animState;
   api.tap = tap;
