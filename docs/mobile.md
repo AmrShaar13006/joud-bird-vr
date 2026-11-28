@@ -39,6 +39,8 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
   `window.__joudRuns`, and shows fps, draw calls, state, tick and seed. It also puts the game on
   `window.__joudGame` for screenshot scripts. Adding `&autoplay=1` makes the core autopilot
   (`src/core/bot.ts`, one decision per fixed step) fly practice rounds, which are never ranked.
+  `&birdScale=1.15` (0.5 to 2) draws the bird bigger or smaller for size tests: only the drawn
+  model (`birdHolder` in `view.ts`), never the hitbox, which stays the ruleset's `birdRadius`.
 - **Rig prototype:** `?debug=1&rig=1` (without `&model=`) shows Joud's 4-bone rig (`src/scene/bird-rig.ts`, weights
   in `src/scene/rig-weights.ts`) large on a plain background instead of the game, with buttons
   for wing poses, views and the two shoulder blends. `src/mobile/rig-gate.ts` loads

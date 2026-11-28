@@ -16,7 +16,7 @@ import { getRunSpec, type MobileRunSpec, RULESET, recordRun } from './run-spec';
 import { chooseTier, FrameWatchdog, lowerTier, parseTier, type Tier, TIER_SETTINGS } from './perf';
 import { M } from './strings';
 import { type BoardView, MobileUi, type Overlay, type OverStatus } from './ui';
-import { MobileView } from './view';
+import { MobileView, parseBirdScale } from './view';
 
 // ---------- settings ----------
 const url = parseUrl(window.location.search); // flags and ?mode= only: ranked rules never take URL tuning
@@ -229,6 +229,8 @@ const view = new MobileView(game.cfg, {
   scenery: startTier.scenery,
   atlasScale: tier === 'low' ? 0.5 : 1,
   points: RULESET.points,
+  // ?debug=1&birdScale= (size tests): the drawn bird only; the hitbox stays the ruleset's.
+  birdScale: url.flags.debug ? parseBirdScale(new URLSearchParams(window.location.search).get('birdScale')) : 1,
 });
 
 /** Apply a tier's settings (antialias stays as created: a context can't change it). */

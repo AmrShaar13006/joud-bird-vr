@@ -15,6 +15,7 @@ import {
 import { KINDS } from '../core/ruleset';
 import { ATLAS_COLS, ATLAS_ROWS, boxTile, tileRect, WORD_TILES, wordColumn } from './box-art';
 import { BADGE_COLS, BADGE_ROWS, badgeKey, badgeLabel, badgeRect, cueFor, SPARKLE_TILE } from './cues';
+import { laneFrame, parseBirdScale } from './view';
 
 describe('obstacle cues', () => {
   const pts = MOBILE1.points;
@@ -143,5 +144,32 @@ describe('venue backdrop', () => {
     }
     // Moves with the obstacles (+x) between wraps.
     expect(layerOffset(1, FAR_PARALLAX, w)).toBeGreaterThan(layerOffset(0, FAR_PARALLAX, w));
+  });
+});
+
+describe('game frame and the debug bird size', () => {
+  const lane = MOBILE1.modes.normal;
+
+  it('a portrait phone fits the lane width; a wide window fits the lane and the ground', () => {
+    const phone = laneFrame(lane.laneW, lane.laneH, 390, 844);
+    expect(phone.halfW).toBeCloseTo(lane.laneW / 2, 9);
+    expect(phone.halfH * 2).toBeGreaterThanOrEqual(lane.laneH);
+    const wide = laneFrame(lane.laneW, lane.laneH, 1280, 800);
+    expect(wide.cy + wide.halfH).toBeCloseTo(lane.laneH / 2, 9); // the roof is the top edge
+    expect(wide.halfW * 2).toBeGreaterThan(lane.laneW);
+    expect(phone.cy).toBe(wide.cy);
+    expect(phone.cy).toBeLessThan(0);
+  });
+
+  it('birdScale is 1 unless a positive number, and stays between 0.5 and 2', () => {
+    expect(parseBirdScale(null)).toBe(1);
+    expect(parseBirdScale('')).toBe(1);
+    expect(parseBirdScale('abc')).toBe(1);
+    expect(parseBirdScale('0')).toBe(1);
+    expect(parseBirdScale('-1.2')).toBe(1);
+    expect(parseBirdScale('1.15')).toBe(1.15);
+    expect(parseBirdScale('1.3')).toBe(1.3);
+    expect(parseBirdScale('9')).toBe(2);
+    expect(parseBirdScale('0.1')).toBe(0.5);
   });
 });
