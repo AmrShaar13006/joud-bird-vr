@@ -114,8 +114,9 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
   is a garden: Joud's chirps, the first version's flap, glints, drums, and the score chime.
 - `director.ts` maps a frame's `game.events` (plus the obstacle points gained and the obstacles
   passed) to sounds and vibration: flap the first version's soft rising blip, exactly as the
-  live game plays it (Amr chose it over every newer flap; the voice is a setting, `classic`, so
-  flap-sound items can add more), +1 the chime, which climbs
+  live game plays it but 6 dB quieter against the chime (Amr chose it over every newer flap, then
+  asked for it a little quieter; the voice is a setting, `classic`, so flap-sound items can add
+  more), +1 the chime, which climbs
   a pentatonic scale with each point of a run as in the first version (Joud approved the climb),
   +2 the chime with glints, +3 with Joud's "twee-tweet", +5 with a trill, flower a bud opening,
   hit a soft thump with a startled chirp, new best a run of chirps, a trill and a doum. The core

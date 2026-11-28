@@ -13,11 +13,11 @@ export interface Kit {
 
 /**
  * Gain of each voice, tuned with `npm run sound:samples` so the effects land near the same
- * loudness in the game. The flap keeps the first version's balance with the chime (its peak a
- * little above the chime's); the button tick sits lower. Change loudness here only.
+ * loudness in the game. The flap is the first version's tone at half its old loudness against the
+ * chime (6 dB lower: Amr found it a little loud); the button tick sits lower. Change loudness here only.
  */
 export const LOUD = {
-  flap: 0.33,
+  flap: 0.17,
   ruffle: 0.5,
   chime: 0.3,
   chirp: 0.16,
