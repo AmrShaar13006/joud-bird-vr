@@ -63,9 +63,14 @@ longer (write the approved date here when it exists).
 3. Check in the SQL editor: `select count(*) from public.students;` returns 0.
 
 ## Lists: colleges, majors, events
-These are data, so no deploy is needed. SQL editor:
+The college and major lists were checked against the university site on 28 Nov 2026 (Amr's
+registrar check, `supabase/migrations/20261128120000_registrar_names.sql`). Codes never change;
+only labels do.
+
+These are data, so no deploy is needed. Run a change in the SQL editor, and add the same
+statement to the repo as a new migration, so every project ends up with the same lists:
 ```sql
--- Correct an Arabic label after the registrar check
+-- Correct a label
 update public.majors set name_ar = '…' where code = 'BUS-MIS';
 -- A new major (codes never change once used)
 insert into public.majors (code, college_code, name_ar, name_en, sort) values ('ENG-XYZ', 'ENG', '…', '…', 5);

@@ -1,5 +1,6 @@
--- SQL tests for 20261127120000_accounts.sql: names, profiles, tickets, boards, grants, deletion.
--- Run after stub.sql, the migrations and legacy.sql on a throwaway database (docs/server.md).
+-- SQL tests for 20261127120000_accounts.sql (names, profiles, tickets, boards, grants, deletion)
+-- and 20261128120000_registrar_names.sql (labels). Run after stub.sql, the migrations and
+-- legacy.sql on a throwaway database (docs/server.md).
 \set ON_ERROR_STOP 1
 -- Expect an error with a given SQLSTATE (and optional message) from a statement.
 create function pg_temp.expect_error(stmt text, state text, msg text default null) returns void language plpgsql as $$
@@ -136,4 +137,11 @@ select pg_temp.check((select string_agg(nickname, ',') from public.get_leaderboa
 set role authenticated; set request.jwt.claim.sub = '33333333-0000-0000-0000-000000000000';
 select pg_temp.check((public.claim_name(12::smallint, 6::smallint, 27::smallint)->>'name') = 'هلال هادئ 27', 'deleted name is free again');
 reset role; reset request.jwt.claim.sub;
+
+-- Labels after the registrar check (28 Nov 2026); codes unchanged.
+select pg_temp.check((select string_agg(code || '=' || name_ar || '/' || name_en, ';' order by sort) from public.colleges)
+  = 'BUS=كلية الأعمال/College of Business Administration;ENG=كلية الهندسة/College of Engineering;LAW=كلية القانون/College of Law', 'college labels');
+select pg_temp.check((select string_agg(code || '=' || name_ar || '/' || name_en, ';' order by code) from public.majors where code in ('BUS-FIN', 'ENG-NES'))
+  = 'BUS-FIN=المالية/Finance;ENG-NES=هندسة شبكات الحاسب/Computer Network Engineering', 'renamed major labels');
+select pg_temp.check((select count(*) = 10 from public.majors where active), '10 majors, codes unchanged');
 \echo ALL SQL CHECKS PASSED

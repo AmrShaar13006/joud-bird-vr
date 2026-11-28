@@ -145,11 +145,12 @@ the browser and the server check the same thing.
   `submit-run`, every rejection has its own test, and every sign-up outcome too. They also run
   as a row in `npm run test:determinism`.
 - `src/mobile/account-rules.test.ts` (Vitest, in `npm test`): the email and passcode rules.
-- SQL (`supabase/tests/`, 36 checks): the migrations on a throwaway local Postgres with a small
+- SQL (`supabase/tests/`, 39 checks): the migrations on a throwaway local Postgres with a small
   Supabase stand-in. With `psql` pointed at an empty database:
   ```
   for f in supabase/tests/stub.sql supabase/migrations/20261124*.sql supabase/tests/legacy.sql \
-           supabase/migrations/20261127*.sql supabase/tests/accounts.test.sql; do
+           supabase/migrations/20261127*.sql supabase/migrations/20261128*.sql \
+           supabase/tests/accounts.test.sql; do
     psql -X -q -v ON_ERROR_STOP=1 -f "$f" || break; done
   ```
   It ends with `ALL SQL CHECKS PASSED`.
