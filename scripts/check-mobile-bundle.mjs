@@ -19,7 +19,7 @@ const BANNED = [/@iwsdk\//, /node_modules\/elics\//, /@pmndrs\//, /@drawcall\//,
 const SERVER = [/@supabase\//, /src\/mobile\/net\.ts/];
 const BUDGET_GZ = 250 * 1024;
 const SOUND = /src\/mobile\/sound\//;
-const SOUND_LAZY = /src\/mobile\/sound\/(percussion|sampler)\.ts$/;
+const SOUND_LAZY = /src\/mobile\/sound\/(percussion|sampler|flap-lab)\.ts$/;
 const SOUND_BUDGET_GZ = 4 * 1024;
 
 if (!existsSync(REPORT)) {
@@ -120,7 +120,7 @@ const checks = [
   [vrServer.length === 0, 'index.html and fallback.html never load supabase-js', `VR pages load server code: ${vrServer.join(', ')}`],
   [gzFirst <= BUDGET_GZ, `play/ first load ${kb(gzFirst)} gzip, within ${kb(BUDGET_GZ)} (with lazy chunks ${kb(gzTotal)})`, `play/ first load ${kb(gzFirst)} gzip, over the ${kb(BUDGET_GZ)} budget`],
   [soundGz <= SOUND_BUDGET_GZ, `play/ eager sound code ${kb(soundGz)} gzip, within ${kb(SOUND_BUDGET_GZ)}`, `play/ eager sound code ${kb(soundGz)} gzip, over ${kb(SOUND_BUDGET_GZ)}`],
-  [soundLazyEager.length === 0, 'the percussion layer and the sound sampler are not in play/\'s first load', `loaded before the first frame: ${soundLazyEager.join(', ')}`],
+  [soundLazyEager.length === 0, 'the percussion layer, the sound sampler and the flap trials are not in play/\'s first load', `loaded before the first frame: ${soundLazyEager.join(', ')}`],
   [vrSound.length === 0, 'index.html and fallback.html never load the phone sound engine', `VR pages load phone sound code: ${vrSound.join(', ')}`],
 ];
 for (const [ok, pass, fail] of checks) console.log(ok ? `PASS ${pass}` : `FAIL ${fail}`);
