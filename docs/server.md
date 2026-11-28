@@ -22,7 +22,7 @@ lands; the server already refuses those sessions a ticket (`needsProfile`). Offi
 - **Auth settings** (dashboard, per project, done by Amr):
   - **Anonymous sign-ins:** off.
   - **Allow new users to sign up:** off. Accounts are made only by the `sign-up` function
-    through the admin API, which this switch doesn't block.
+    through the admin API, which this switch doesn't block (checked on staging, 28 Nov 2026).
   - **Confirm email:** off. No email is ever sent.
   - **Minimum password length:** 6 (passcodes are 6–12 digits).
   - **Sign-in rate limit:** raised only as far as about 20 phones signing in on one Wi-Fi need,
@@ -206,6 +206,11 @@ the browser and the server check the same thing.
   3. the auth settings above
   4. Vercel env vars `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`
 - Sign-up stays off in production until Student Affairs approves the data collection.
+- **Smoke test (staging only):** `scripts/admin/smoke-accounts.mjs` (usage in its header) makes one
+  throwaway account, walks it through sign-up, profile, name, a ranked run and the board, then
+  deletes it. Its first two checks fail while open sign-ups or anonymous sign-ins are still on.
+  Each run leaves one valid score-0 run with no user, which the board skips. Never run it against
+  production, where it would make a real account.
 
 ## Abuse model
 - **Prevented:**
