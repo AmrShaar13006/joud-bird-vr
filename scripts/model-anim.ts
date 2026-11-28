@@ -34,6 +34,7 @@ const CELL = 300; // px, one frame of a contact sheet
 const CLIP_FPS = 24; // the clips are authored at 24 fps (tools/blender/joud_clips.py)
 const MAX_FILE = 5 * 1024 * 1024; // CLAUDE.md: no file over 5 MB
 let PRESENT_TILT = 14; // the game view's lean towards the camera: read from the viewer (model-view.ts) in main()
+let GAME_TURN = -45; // the game view's turn about Y: read from the viewer in main() as well
 
 type Views = Extract<View, 'game' | 'front'>;
 const VIEWS: Views[] = ['game', 'front'];
@@ -293,7 +294,7 @@ async function sheet(browser: Browser, page: Page, clip: Clip, info: ModelInfo['
     rows
       .map(
         (r) =>
-          `<div style="margin:6px 0 2px;font-weight:600">${r.view === 'game' ? `Game view (the bird turned -55 degrees and leaning ${PRESENT_TILT} degrees towards the camera, no perspective` + (clip === 'fall' ? ', root tilted 30 degrees nose down as the game does while it drops' : '') + ')' : 'Front'}</div>` +
+          `<div style="margin:6px 0 2px;font-weight:600">${r.view === 'game' ? `Game view (the bird turned ${GAME_TURN} degrees and leaning ${PRESENT_TILT} degrees towards the camera, no perspective` + (clip === 'fall' ? ', root tilted 30 degrees nose down as the game does while it drops' : '') + ')' : 'Front'}</div>` +
           `<div style="display:grid;grid-template-columns:repeat(8,${CELL}px);gap:4px">` +
           r.cells.map((c) => `<figure style="margin:0;text-align:center"><img src="data:image/jpeg;base64,${c.data}" width="${CELL}" height="${CELL}" style="display:block"><figcaption>${c.label}</figcaption></figure>`).join('') +
           `</div>`,
@@ -320,6 +321,7 @@ export async function main(args: string[] = []): Promise<number> {
     mkdirSync(DIR, { recursive: true });
     const info = await page.evaluate(() => (window as ModelWindow).__joudModel!.info());
     PRESENT_TILT = info.presentTilt;
+    GAME_TURN = info.facingTurn;
     if (info.clips.length !== 5) throw new Error(`expected 5 clips in the model, found ${info.clips.map((c) => c.name).join(', ') || 'none'}`);
     const log: string[] = [];
     for (const c of info.clips) {
