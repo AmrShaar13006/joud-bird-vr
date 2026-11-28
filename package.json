@@ -19,7 +19,8 @@
     "build:sim": "node scripts/build-sim.mjs",
     "check:mobile": "node scripts/check-mobile-bundle.mjs",
     "sound:samples": "node scripts/sound/render-samples.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "rig:shots": "node scripts/run-ts.mjs scripts/rig-shots.ts"
   },
   "dependencies": {
     "@iwsdk/core": "1.1.0",

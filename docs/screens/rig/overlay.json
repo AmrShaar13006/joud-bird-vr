@@ -1,0 +1,60 @@
+{
+ "calls": 2,
+ "triangles": 6746,
+ "fps": 35,
+ "rig": "shoulder |x|=0.481 wing axis y=0.219 z=-0.003 r=0.128 belly |x|=0.601 neck y=0.437 | blend |x| 0.45-0.55, head y 0.402-0.462",
+ "pose": "beat",
+ "view": "front",
+ "blend": "narrow",
+ "penetration": {
+  "narrow folded": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "narrow -60": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "narrow -30": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "narrow 0": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "narrow 30": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "narrow 60": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "wide folded": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "wide -60": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "wide -30": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "wide 0": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "wide 30": {
+   "vertices": 0,
+   "deepest": 0
+  },
+  "wide 60": {
+   "vertices": 0,
+   "deepest": 0
+  }
+ },
+ "note": "headless Chromium with SwiftShader (software WebGL): fps is not a device number"
+}
