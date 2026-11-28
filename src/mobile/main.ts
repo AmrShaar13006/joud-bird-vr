@@ -1,7 +1,8 @@
 // Joud Bird on phones: a portrait, one-tap game on the same src/core as the VR pages.
 // Plain three (the same super-three), no IWSDK, no WebXR. Docs: docs/mobile.md.
 
-import './model-gate';
+import './model-gate'; // first: on ?debug=1&rig=1&model=v1|v2 it shows the model viewer and the game never starts
+import './rig-gate'; // then: on ?debug=1&rig=1 (no model) it shows the rig prototype and the game never starts
 import './mobile.css';
 import { WebGLRenderer } from 'three';
 import { isMode, type Mode, parseUrl } from '../core/config';

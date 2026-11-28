@@ -39,10 +39,16 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
   `window.__joudRuns`, and shows fps, draw calls, state, tick and seed. It also puts the game on
   `window.__joudGame` for screenshot scripts. Adding `&autoplay=1` makes the core autopilot
   (`src/core/bot.ts`, one decision per fixed step) fly practice rounds, which are never ranked.
+- **Rig prototype:** `?debug=1&rig=1` (without `&model=`) shows Joud's 4-bone rig (`src/scene/bird-rig.ts`, weights
+  in `src/scene/rig-weights.ts`) large on a plain background instead of the game, with buttons
+  for wing poses, views and the two shoulder blends. `src/mobile/rig-gate.ts` loads
+  `rig-view.ts` as its own lazy chunk and stops the game from starting there. `npm run build &&
+  npm run rig:shots` saves the review screenshots to `docs/screens/rig/`. Not used in the game yet.
 - **Other flags:** `?mode=`, `?mute=1`, `?model=placeholder`, `?fx=0`. URL tuning (`?g=` etc.) is
   ignored here, because ranked rules only come from the ruleset.
 - **Model viewer:** `?debug=1&rig=1&model=v2` (or `v1`) replaces the game with a viewer for
-  `public/models/joud-v2.glb`. `src/mobile/model-gate.ts` stops the game from starting there.
+  `public/models/joud-v2.glb`. `src/mobile/model-gate.ts` stops the game from starting there;
+  `main.ts` imports it before `rig-gate.ts`, so `&model=` wins over the rig prototype.
   - Stills (folded, spread) and the five clips inside the GLB: `idle`, `flap`, `glide`, `fall`,
     `crash` (24 fps; no clip keys the root bone, which the game moves and tilts).
   - **Tap** plays them the way the game will, on the game's own physics (`mobile-1`): a tap plays
