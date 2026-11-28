@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameEvent } from '../../core/game';
 import { BUZZ, type FramePlan, jitter, planFrame, scoreCue } from './director';
-import { BAR, BPM, layerFor, MAQSUM, PULSE } from './percussion';
+import { AHEAD, BAR, BPM, type Layer, layerFor, MAQSUM, PercussionLayer, PULSE } from './percussion';
 import { CHIME_STEPS, chimeStep, flap, type Kit, LOUD } from './voices';
 import { KEYS, type KeyStore, loadSoundSettings, saveSoundSetting } from './settings';
 
@@ -81,6 +81,89 @@ describe('percussion layer', () => {
     expect(MAQSUM).toMatch(/^[DT.]{8}$/);
     expect(PULSE).toMatch(/^[F.]{8}$/);
     expect(BAR * 8).toBeCloseTo(20);
+  });
+});
+
+describe('percussion during rounds', () => {
+  // A fake audio clock and recorders in place of the drums and the breeze.
+  function rig() {
+    const fades: [string, number, number][] = [];
+    const ctx = {
+      currentTime: 10,
+      createGain: () => ({
+        gain: {
+          setValueAtTime: (v: number, t: number) => fades.push(['set', v, t]),
+          setTargetAtTime: (v: number, t: number) => fades.push(['to', v, t]),
+        },
+        connect: () => {},
+        disconnect: () => {},
+      }),
+    };
+    const bars: [number, Layer, unknown][] = [];
+    const gusts: [number, number][] = [];
+    const layer = new PercussionLayer({ ctx, out: {}, noise: {} } as unknown as Kit, {
+      bar: (k, t, l) => bars.push([t, l, k.out]),
+      breeze: (_k, t, d) => gusts.push([t, d]),
+    });
+    const at = (t: number, on: boolean, score: number) => {
+      ctx.currentTime = t;
+      layer.update(on, score);
+    };
+    return { layer, bars, gusts, fades, at };
+  }
+  const last = <T,>(a: T[]): T => a[a.length - 1];
+
+  it('stays silent until a round plays, then fades in and keeps bars just ahead, back to back', () => {
+    const r = rig();
+    r.at(10, false, 0);
+    expect(r.bars).toEqual([]);
+    expect(r.layer.playing).toBe(false);
+    r.at(10, true, 0);
+    expect(r.layer.playing).toBe(true);
+    expect(r.fades).toEqual([['set', 0, 10], ['to', 1, 10]]);
+    for (let t = 10; t < 20; t += 1 / 60) r.at(t, true, 0);
+    const starts = r.bars.map(([t]) => t);
+    expect(starts[0]).toBeCloseTo(10.05);
+    for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeCloseTo(BAR);
+    expect(last(starts)).toBeLessThan(20 + AHEAD);
+    expect(last(starts) + BAR).toBeGreaterThanOrEqual(20 - 1 / 60 + AHEAD);
+  });
+
+  it('follows the score bar by bar: breeze, then frame drum from 10, darbuka from 25', () => {
+    const r = rig();
+    let t = 10;
+    for (const score of [0, 0, 12, 12, 30]) {
+      r.at(t, true, score);
+      t += BAR;
+    }
+    expect(r.bars.map(([, l]) => l)).toEqual([0, 0, 1, 1, 2]);
+  });
+
+  it('keeps the breeze going in overlapping stretches', () => {
+    const r = rig();
+    for (let t = 10; t < 40; t += 0.1) r.at(t, true, 0);
+    // Stretches of 4 bars (10 s) from 10.05 s, the last one scheduled just ahead of 40 s.
+    expect(r.gusts.map(([t]) => Math.round(t))).toEqual([10, 20, 30, 40]);
+    for (let i = 1; i < r.gusts.length; i++) {
+      const [t0, d0] = r.gusts[i - 1];
+      expect(r.gusts[i][0]).toBeCloseTo(t0 + d0 - 1.5);
+    }
+  });
+
+  it('fades out on pause, crash or switch-off, and starts a fresh chain from bar one after', () => {
+    const r = rig();
+    r.at(10, true, 30);
+    const first = r.bars[0][2];
+    r.at(11, false, 30);
+    expect(r.layer.playing).toBe(false);
+    expect(last(r.fades)).toEqual(['to', 0, 11]);
+    const scheduled = r.bars.length;
+    r.at(12, false, 30);
+    expect(r.bars.length).toBe(scheduled);
+    r.at(15, true, 0);
+    expect(last(r.bars)[0]).toBeCloseTo(15.05);
+    expect(last(r.bars)[1]).toBe(0);
+    expect(last(r.bars)[2]).not.toBe(first);
   });
 });
 

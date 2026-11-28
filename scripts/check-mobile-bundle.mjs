@@ -75,7 +75,8 @@ const soundOut = await build({
 });
 const soundCode = (Array.isArray(soundOut) ? soundOut : [soundOut])
   .flatMap((o) => o.output)
-  .filter((o) => o.type === 'chunk')
+  // Not the chunks it loads with import(): the percussion layer arrives after the first tap.
+  .filter((o) => o.type === 'chunk' && !o.isDynamicEntry)
   .map((o) => o.code)
   .join('');
 const soundGz = gzipSync(soundCode, { level: 9 }).length;

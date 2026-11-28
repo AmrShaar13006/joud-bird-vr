@@ -1,8 +1,8 @@
 // The percussion layer, drums only (Joud's rule: no melody, no instruments). One tempo.
 // Under it, a garden bed: a soft breeze, and far-off birds once the score reaches 10.
 // Score 0–9: breeze only. From 10: a soft frame-drum pulse. From 25: a full maqsum-style
-// darbuka rhythm over it. PR 1 uses it only for the debug sampler's preview and the
-// offline renders; PR 2 schedules it during play, after Joud approves the samples.
+// darbuka rhythm over it. PercussionLayer plays it during rounds (Joud approved the samples on
+// 28 Nov 2026). Loaded after the first tap, never in the first load.
 
 import { breeze, distantBird, doum, frameDrum, type Kit, tek } from './voices';
 
@@ -54,4 +54,77 @@ export function schedulePreview(k: Kit, t: number): number {
   breeze(k, t, dur);
   layers.forEach((layer, i) => scheduleBar(k, t + i * BAR, layer));
   return dur;
+}
+
+/** Seconds of drums scheduled ahead of the audio clock; each frame tops it up. */
+export const AHEAD = 0.3;
+/** The breeze plays in stretches this long, each overlapping the next by its 1.5 s fades. */
+const GUST = BAR * 4;
+/** Time constant of the fades (seconds): in over about a second, out in about half. */
+const FADE_IN = 0.25;
+const FADE_OUT = 0.12;
+
+/** What the layer plays; tests swap these for recorders. */
+export interface LayerVoices {
+  bar: (k: Kit, t: number, layer: Layer) => void;
+  breeze: (k: Kit, t: number, dur: number) => void;
+}
+
+/**
+ * The layer during play. Call update() every frame: while `on` (a round is playing and the
+ * switch is on) it keeps bars scheduled AHEAD seconds ahead, each at the layer the score calls
+ * for when it is scheduled, so a change lands on the next bar. When `on` drops (pause, crash,
+ * hidden tab, switch off) it fades out; the next start is a fresh chain from bar one, so notes
+ * already scheduled on the faded chain stay silent.
+ */
+export class PercussionLayer {
+  private chain: GainNode | null = null;
+  private kit: Kit | null = null;
+  private nextBar = 0;
+  private nextGust = 0;
+
+  constructor(
+    private readonly base: Kit,
+    private readonly voices: LayerVoices = { bar: (k, t, l) => scheduleBar(k, t, l), breeze },
+  ) {}
+
+  get playing(): boolean {
+    return this.chain !== null;
+  }
+
+  update(on: boolean, score: number): void {
+    const now = this.base.ctx.currentTime;
+    if (!on) {
+      if (this.chain) this.stop(now);
+      return;
+    }
+    if (!this.chain) this.start(now);
+    const k = this.kit!;
+    while (this.nextGust < now + AHEAD) {
+      this.voices.breeze(k, this.nextGust, GUST + 1.5);
+      this.nextGust += GUST;
+    }
+    while (this.nextBar < now + AHEAD) {
+      this.voices.bar(k, this.nextBar, layerFor(score));
+      this.nextBar += BAR;
+    }
+  }
+
+  private start(now: number): void {
+    const g = this.base.ctx.createGain();
+    g.gain.setValueAtTime(0, now);
+    g.gain.setTargetAtTime(1, now, FADE_IN);
+    g.connect(this.base.out);
+    this.chain = g;
+    this.kit = { ...this.base, out: g };
+    this.nextBar = this.nextGust = now + 0.05;
+  }
+
+  private stop(now: number): void {
+    const g = this.chain!;
+    g.gain.setTargetAtTime(0, now, FADE_OUT);
+    // Free it once its last scheduled notes are over.
+    setTimeout(() => g.disconnect(), (AHEAD + 1) * 1000);
+    this.chain = this.kit = null;
+  }
 }

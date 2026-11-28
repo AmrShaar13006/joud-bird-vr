@@ -132,9 +132,14 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
   to `.tmp/sound/*.wav` and prints peak and loudest-50-ms levels (`SOUND_CHROMIUM` picks a
   Chromium binary).
 - The percussion layer (`percussion.ts`: a breeze, then frame drum and far-off birds from score
-  10, maqsum darbuka from 25, 96 BPM) is only in the debug sampler for now: `?debug=1&sounds=1` shows a button per sound.
-- `check:mobile` keeps the eager sound code at most 4 kB gzip and the percussion layer and the
-  sampler out of the first load.
+  10, maqsum darbuka from 25, 96 BPM; Joud approved it 28 Nov) plays during rounds.
+  `PercussionLayer` keeps bars scheduled 0.3 s ahead of the audio clock from the frame loop
+  (`sound.percussion(playing, score)`), so a new layer starts on the next bar. It fades out on
+  pause, crash, a hidden tab or the «الإيقاع» switch, and every round starts fresh from bar one.
+  It loads with `import()` on the first tap. `?debug=1&sounds=1` shows a button per sound and the
+  20-second preview.
+- `check:mobile` keeps the eager sound code at most 4 kB gzip (not counting what it loads with
+  `import()`) and the percussion layer and the sampler out of the first load.
 
 ### Practice
 - Same ruleset, a fresh random seed every round.
