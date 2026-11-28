@@ -48,6 +48,17 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
   npm run rig:shots` saves the review screenshots to `docs/screens/rig/`. Not used in the game yet.
 - **Other flags:** `?mode=`, `?mute=1`, `?model=placeholder`, `?fx=0`. URL tuning (`?g=` etc.) is
   ignored here, because ranked rules only come from the ruleset.
+- **Joud v2 in the game:** `?model=v2` (no debug flag needed) flies `public/models/joud-v2.glb`
+  instead of v1; the default stays v1. `src/mobile/joud-v2-bird.ts` and `joud-clips.ts` are lazy
+  chunks that load only with the switch (about 2 kB gzip, plus the 426 KB GLB in place of v1's
+  359 KB one), and the code-built placeholder flies until the GLB is in. It loads on every tier.
+  The clips follow the game as the viewer's tap demo plays them: `idle` on the home and ready
+  screens, `flap` on each flap, `glide` when it ends, `fall` once the bird sinks faster than 65 %
+  of `maxFall`, `crash` on a hit or game over; pausing holds the pose. Turned −45° and leaning
+  14° towards the camera on a wrapper above the root; the root tilts and squashes as `bird.ts`
+  does for v1, with the same hit flash when effects are on. Rendering only: the core reads
+  `?model=v2` as `joud`, so the hitbox, the rulesets and the sim are unchanged, and the VR pages
+  build to the same files. The debug HUD shows `bird v2 <clip>`.
 - **Model viewer:** `?debug=1&rig=1&model=v2` (or `v1`) replaces the game with a viewer for
   `public/models/joud-v2.glb`. `src/mobile/model-gate.ts` stops the game from starting there;
   `main.ts` imports it before `rig-gate.ts`, so `&model=` wins over the rig prototype.
@@ -57,20 +68,20 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
     `flap` (0.08 s cross-fade), which ends on `glide`; `fall` starts once the bird sinks faster
     than 65 % of its terminal speed; the floor or the roof plays `crash`. A tap during `flap`
     restarts it with a 0.05 s cross-fade, and taps under 0.3 s apart play it at up to 1.6x.
-  - Views: front, three-quarter, side, back, face, top, and the game view (the bird turned −55°,
-    as `src/scene/bird.ts` draws it). Also the official art beside the model, sockets, blink,
+  - Views: front, three-quarter, side, back, face, top, and the game view (the bird turned as the
+    game draws it: v2 −45° with `?model=v2`, v1 −55° as `src/scene/bird.ts` does). Also the official art beside the model, sockets, blink,
     the toon look proposal, and `&status=1` (a caption of what is playing, for recordings).
   - **Presentation tilt:** in the game view the bird leans 14° towards the camera
     (`PRESENT_TILT`; the `tilt` button or `&tilt=0` turns it off), so the tops of the wings show
     in a glide although the camera is level. The lean is on a wrapper above the root that turns
-    about the root's own place: the root's position and tilt stay the game's. When v2 goes into
-    the game, `src/scene/bird.ts` needs the same wrapper.
+    about the root's own place: the root's position and tilt stay the game's. The game's
+    `?model=v2` bird has the same wrapper.
   - **Game view tests:** `&bg=game` puts the game's own sky, plaza and ground behind the bird
     (`src/mobile/game-backdrop.ts`, the code `view.ts` draws the game with) and uses the game
     camera's fixed frame, so a 390 × 844 window is a phone's screen. The viewer's chunk cannot
     import from the `play/` entry's chunk, which `model-gate.ts` leaves in an error state, so the
     gate imports `game-backdrop.ts` and hands it over. With it: `&birdScale=` (the drawn bird
-    only, as in the game), `&turn=` (degrees; `bird.ts` uses −55) and `&laneY=` (stills and single
+    only, as in the game), `&turn=` (degrees; the game's turn for that model by default) and `&laneY=` (stills and single
     clips, lane units), `&scroll=` (the backdrop as after that many lane units of play; 0 is
     where it stays with effects off), and the `game sky`, `size` and `turn` buttons. `&bg=key` is
     flat magenta in the same frame, for cutting the bird out. After `npm run build`,
@@ -79,7 +90,8 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
     and test 4, the backdrop pushed back (Joud's outline at three scrolls, and the box edges in
     autoplayed game frames). `backdrop --before=<dist dir>` puts another build's pictures beside
     this one's.
-  - The game still draws `joud.glb`: v2 and its clips are only in this viewer until approved.
+  - The clip rules (fades, fast taps, when glide turns to fall) live in `src/mobile/joud-clips.ts`,
+    shared by the viewer's tap demo and the game's `?model=v2` bird.
   - The model is built by `tools/blender/build_joud.py`, with the clips' numbers in
     `tools/blender/joud_clips.py` (Blender, run by hand; neither is a game dependency).
     After `npm run build`: `npm run model:shots` writes the stills to `docs/screens/model-v2/`,

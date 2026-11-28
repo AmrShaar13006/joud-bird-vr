@@ -223,8 +223,12 @@ const renderer = new WebGLRenderer({
   antialias: startTier.antialias,
   powerPreference: 'high-performance',
 });
+// ?model=v2: Joud v2 and its clips (joud-v2-bird.ts, its own lazy chunk) instead of v1. The core
+// reads ?model= as joud (anything but "placeholder"), so the sim and the hitbox stay the same.
+const modelV2 = new URLSearchParams(window.location.search).get('model') === 'v2';
 const view = new MobileView(game.cfg, {
-  model: url.flags.model === 'joud' && startTier.birdGlb,
+  // with v2, the code-built placeholder flies until v2 has loaded
+  model: !modelV2 && url.flags.model === 'joud' && startTier.birdGlb,
   glbUrl: new URL('../models/joud.glb', window.location.href).href,
   fx: url.flags.fx && startTier.effects,
   scenery: startTier.scenery,
@@ -240,8 +244,14 @@ function applyTier(t: Tier): void {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, s.pixelRatio));
   view.setEffects(url.flags.fx && s.effects);
   view.setScenery(s.scenery);
-  view.setBirdDetail(url.flags.model === 'joud' && s.birdGlb);
+  view.setBirdDetail(!modelV2 && url.flags.model === 'joud' && s.birdGlb);
   resize();
+}
+if (modelV2) {
+  void import('./joud-v2-bird')
+    .then((m) => m.loadJoudV2(new URL('../models/joud-v2.glb', window.location.href).href, url.flags.fx && startTier.effects))
+    .then((bird) => view.useBird(bird))
+    .catch((err) => console.error('[joud] model v2 failed, keeping the placeholder:', err));
 }
 game.beforeStep = () => {
   view.snapshot(game);

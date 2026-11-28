@@ -16,6 +16,7 @@ import {
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  type Object3D,
   OrthographicCamera,
   PlaneGeometry,
   Scene,
@@ -33,6 +34,19 @@ import { ScoreBurst } from '../scene/burst';
 import { addGameBackdrop, type GameBackdrop, gameBackground, laneFrame, scrollBackdrop } from './game-backdrop';
 import { boxTile, type Column, drawBoxAtlas, tileRect, wordColumn } from './box-art';
 import { badgeKey, badgeRect, type Cue, cueFor, drawBadgeAtlas, SPARKLE_TILE } from './cues';
+
+/**
+ * What the view needs from a bird: v1 (src/scene/bird.ts, also the VR pages' bird) or, behind
+ * ?model=v2, Joud v2 (joud-v2-bird.ts, loaded lazily). `root` sits at the hitbox centre.
+ */
+export interface GameBird {
+  readonly root: Object3D;
+  /** For the debug HUD. */
+  readonly status: string;
+  onFlap(): void;
+  onHit(): void;
+  update(game: Game, dt: number, time: number): void;
+}
 
 export interface ViewOptions {
   /** Load joud.glb (false: the code-built placeholder bird). */
@@ -127,7 +141,7 @@ function flowerGeometry(): BufferGeometry {
 export class MobileView {
   readonly scene = new Scene();
   readonly camera = new OrthographicCamera(-0.5, 0.5, 1, -1, 0.1, 20);
-  readonly bird: Bird;
+  bird: GameBird;
   private readonly birdHolder = new Group();
   private readonly boxes: InstancedMesh;
   /** Per-box atlas tile rectangle (u0, v0, width, height). */
@@ -229,13 +243,14 @@ export class MobileView {
     masks.position.z = 1;
     s.add(masks);
 
-    this.bird = new Bird(opts.fx);
-    this.birdHolder.add(this.bird.root);
+    const bird = new Bird(opts.fx);
+    this.bird = bird;
+    this.birdHolder.add(bird.root);
     this.birdHolder.position.z = 0.5;
     s.add(this.birdHolder);
     this.setConfig(cfg);
     this.glbWanted = opts.model;
-    if (opts.model) void this.bird.load(opts.glbUrl).then(() => this.setBirdDetail(this.glbWanted));
+    if (opts.model) void bird.load(opts.glbUrl).then(() => this.setBirdDetail(this.glbWanted));
 
     this.camera.position.set(0, 0, 10);
   }
@@ -252,10 +267,17 @@ export class MobileView {
     this.backdrop.plaza.visible = on;
   }
 
-  /** joud.glb (if loaded) or the code-built placeholder. Glasses and legs stay. */
+  /** Draw `bird` from now on in place of the one drawn so far (?model=v2, once it has loaded). */
+  useBird(bird: GameBird): void {
+    this.birdHolder.remove(this.bird.root);
+    this.bird = bird;
+    this.birdHolder.add(bird.root);
+  }
+
+  /** v1: joud.glb (if loaded) or the code-built placeholder. Glasses and legs stay. */
   setBirdDetail(glb: boolean): void {
     this.glbWanted = glb;
-    if (this.bird.status !== 'joud') return;
+    if (!(this.bird instanceof Bird) || this.bird.status !== 'joud') return;
     const model = this.bird.root.children[0];
     for (const child of model.children) {
       if (child.name === 'BirdGlassesLegs') continue;
