@@ -55,9 +55,12 @@ export function launch(): Promise<Browser> {
   });
 }
 
-/** `glb`: another joud-v2.glb to show in place of the built one (model:anim's "before" pictures). */
-export async function openViewer(browser: Browser, width = W, height = H, glb?: string): Promise<Page> {
-  const page = await browser.newPage({ viewport: { width, height }, ignoreHTTPSErrors: true });
+/**
+ * `glb`: another joud-v2.glb to show in place of the built one (model:anim's "before" pictures).
+ * `pixelRatio`: device pixels per CSS px (model-tests.ts renders a phone's screen at 2).
+ */
+export async function openViewer(browser: Browser, width = W, height = H, glb?: string, pixelRatio = 1): Promise<Page> {
+  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: pixelRatio, ignoreHTTPSErrors: true });
   if (glb) await page.route('**/models/joud-v2.glb', (r) => r.fulfill({ path: glb, contentType: 'model/gltf-binary' }));
   page.on('pageerror', (e) => {
     // model-gate.ts throws on purpose so the game never starts on this page.

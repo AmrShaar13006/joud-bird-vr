@@ -1,0 +1,135 @@
+{
+  "note": "Outline of the bird against what is behind it (CIELAB ΔE 1976, 2x pixels). lost: ΔE < 10; weak: 10 to 20.",
+  "poses": {
+    "idle": {
+      "plain": {
+        "lostPct": 7.2,
+        "weakPct": 13.1,
+        "medianDeltaE": 28.8,
+        "pixels": 251
+      },
+      "top": {
+        "lostPct": 0,
+        "weakPct": 7.6,
+        "medianDeltaE": 29.8,
+        "pixels": 251
+      },
+      "middle": {
+        "lostPct": 16.3,
+        "weakPct": 27.5,
+        "medianDeltaE": 21.7,
+        "pixels": 251
+      },
+      "bottom": {
+        "lostPct": 12.7,
+        "weakPct": 15.5,
+        "medianDeltaE": 33.7,
+        "pixels": 251
+      }
+    },
+    "flap, raised": {
+      "plain": {
+        "lostPct": 5.4,
+        "weakPct": 12.4,
+        "medianDeltaE": 30.6,
+        "pixels": 354
+      },
+      "top": {
+        "lostPct": 0,
+        "weakPct": 4.2,
+        "medianDeltaE": 31.8,
+        "pixels": 354
+      },
+      "middle": {
+        "lostPct": 13.8,
+        "weakPct": 22,
+        "medianDeltaE": 24.1,
+        "pixels": 354
+      },
+      "bottom": {
+        "lostPct": 18.6,
+        "weakPct": 25.1,
+        "medianDeltaE": 22,
+        "pixels": 354
+      }
+    },
+    "flap, downstroke": {
+      "plain": {
+        "lostPct": 6.2,
+        "weakPct": 22.1,
+        "medianDeltaE": 27,
+        "pixels": 308
+      },
+      "top": {
+        "lostPct": 0,
+        "weakPct": 6.5,
+        "medianDeltaE": 29.7,
+        "pixels": 308
+      },
+      "middle": {
+        "lostPct": 28.6,
+        "weakPct": 25,
+        "medianDeltaE": 18.9,
+        "pixels": 308
+      },
+      "bottom": {
+        "lostPct": 18.2,
+        "weakPct": 19.2,
+        "medianDeltaE": 32.1,
+        "pixels": 308
+      }
+    },
+    "glide": {
+      "plain": {
+        "lostPct": 5.7,
+        "weakPct": 32.8,
+        "medianDeltaE": 26.5,
+        "pixels": 332
+      },
+      "top": {
+        "lostPct": 0,
+        "weakPct": 8.1,
+        "medianDeltaE": 29,
+        "pixels": 332
+      },
+      "middle": {
+        "lostPct": 28,
+        "weakPct": 22.6,
+        "medianDeltaE": 20,
+        "pixels": 332
+      },
+      "bottom": {
+        "lostPct": 32.5,
+        "weakPct": 18.4,
+        "medianDeltaE": 19.8,
+        "pixels": 332
+      }
+    },
+    "fall": {
+      "plain": {
+        "lostPct": 3.5,
+        "weakPct": 15.8,
+        "medianDeltaE": 30.1,
+        "pixels": 310
+      },
+      "top": {
+        "lostPct": 0,
+        "weakPct": 4.8,
+        "medianDeltaE": 33.2,
+        "pixels": 310
+      },
+      "middle": {
+        "lostPct": 14.5,
+        "weakPct": 23.9,
+        "medianDeltaE": 26.1,
+        "pixels": 310
+      },
+      "bottom": {
+        "lostPct": 20.6,
+        "weakPct": 29,
+        "medianDeltaE": 20.1,
+        "pixels": 310
+      }
+    }
+  }
+}

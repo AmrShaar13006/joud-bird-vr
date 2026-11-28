@@ -65,6 +65,17 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
     in a glide although the camera is level. The lean is on a wrapper above the root that turns
     about the root's own place: the root's position and tilt stay the game's. When v2 goes into
     the game, `src/scene/bird.ts` needs the same wrapper.
+  - **Game view tests:** `&bg=game` puts the game's own sky, plaza and ground behind the bird
+    (`src/mobile/game-backdrop.ts`, the code `view.ts` draws the game with) and uses the game
+    camera's fixed frame, so a 390 × 844 window is a phone's screen. The viewer's chunk cannot
+    import from the `play/` entry's chunk, which `model-gate.ts` leaves in an error state, so the
+    gate imports `game-backdrop.ts` and hands it over. With it: `&birdScale=` (the drawn bird
+    only, as in the game), `&turn=` (degrees; `bird.ts` uses −55) and `&laneY=` (stills and single
+    clips, lane units), and the `game sky`, `size` and `turn` buttons. `&bg=key` is flat magenta
+    in the same frame, for cutting the bird out. After `npm run build`,
+    `node scripts/run-ts.mjs scripts/model-tests.ts` (needs `ffmpeg`) writes the three test sheets
+    of 28 Nov 2026 (background and outline contrast, size, turn) to
+    `docs/screens/model-v2/tests/`.
   - The game still draws `joud.glb`: v2 and its clips are only in this viewer until approved.
   - The model is built by `tools/blender/build_joud.py`, with the clips' numbers in
     `tools/blender/joud_clips.py` (Blender, run by hand; neither is a game dependency).
