@@ -5,6 +5,7 @@
 import type { GameEvent } from '../../core/game';
 import { type Cue, type FramePlan, jitter, planFrame } from './director';
 import { vibrate } from './haptics';
+import type { PercussionLayer } from './percussion';
 import type { SoundSettings } from './settings';
 import * as V from './voices';
 
@@ -57,6 +58,8 @@ export class SoundEngine {
   private kit: V.Kit | null = null;
   private readonly plan: FramePlan = { cues: [], buzz: null };
   private voiceEnds: number[] = [];
+  /** The percussion layer, loaded after the first tap. */
+  private drums: PercussionLayer | null = null;
   flapVoice: V.FlapVoice = 'classic';
 
   constructor(readonly settings: SoundSettings) {}
@@ -80,6 +83,8 @@ export class SoundEngine {
         this.effectsBus = this.bus(this.settings.effects);
         this.percussionBus = this.bus(this.settings.percussion);
         this.kit = { ctx, out: this.effectsBus, noise: V.makeNoise(ctx) };
+        const kit = { ...this.kit, out: this.percussionBus };
+        void import('./percussion').then((m) => (this.drums = new m.PercussionLayer(kit)), () => {});
       }
       // 'suspended' after page hide, 'interrupted' after a call or Siri on iPhone.
       if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => {});
@@ -94,6 +99,7 @@ export class SoundEngine {
 
   /** Page hidden or closed: stop the audio clock to save battery. */
   suspend(): void {
+    this.drums?.update(false, 0);
     if (this.ctx?.state === 'running') void this.ctx.suspend().catch(() => {});
   }
 
@@ -122,6 +128,14 @@ export class SoundEngine {
     const p = planFrame(events, pointsDelta, this.plan);
     for (const cue of p.cues) this.play(cue, run);
     if (p.buzz && this.settings.effects) vibrate(p.buzz);
+  }
+
+  /**
+   * The percussion layer, every frame: it plays while a round is `playing` and the «الإيقاع»
+   * switch is on, following the `score`; otherwise it fades out.
+   */
+  percussion(playing: boolean, score: number): void {
+    if (this.ctx?.state === 'running') this.drums?.update(playing && this.settings.percussion, score);
   }
 
   play(cue: Cue, run = 1): void {

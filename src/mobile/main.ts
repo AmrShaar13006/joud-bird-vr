@@ -457,6 +457,7 @@ function frame(now: number): void {
     }
   }
   sound.frame(game.events, game.obstaclePoints - lastPoints, game.field.passed);
+  sound.percussion(game.state === 'playing', game.score);
   game.events.length = 0;
   lastPoints = game.obstaclePoints;
   lastFlowers = game.flowers;
