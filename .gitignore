@@ -50,3 +50,7 @@ pids/
 # Playwright output (npm run test:determinism)
 test-results/
 playwright-report/
+
+# Blender build preview (tools/blender/build_joud.py)
+tools/blender/joud-v2-atlas.png
+tools/blender/*.blend1

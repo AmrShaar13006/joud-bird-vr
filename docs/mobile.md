@@ -39,13 +39,69 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
   `window.__joudRuns`, and shows fps, draw calls, state, tick and seed. It also puts the game on
   `window.__joudGame` for screenshot scripts. Adding `&autoplay=1` makes the core autopilot
   (`src/core/bot.ts`, one decision per fixed step) fly practice rounds, which are never ranked.
-- **Rig prototype:** `?debug=1&rig=1` shows Joud's 4-bone rig (`src/scene/bird-rig.ts`, weights
+  `&birdScale=1.15` (0.5 to 2) draws the bird bigger or smaller for size tests: only the drawn
+  model (`birdHolder` in `view.ts`), never the hitbox, which stays the ruleset's `birdRadius`.
+- **Rig prototype:** `?debug=1&rig=1` (without `&model=`) shows Joud's 4-bone rig (`src/scene/bird-rig.ts`, weights
   in `src/scene/rig-weights.ts`) large on a plain background instead of the game, with buttons
   for wing poses, views and the two shoulder blends. `src/mobile/rig-gate.ts` loads
   `rig-view.ts` as its own lazy chunk and stops the game from starting there. `npm run build &&
   npm run rig:shots` saves the review screenshots to `docs/screens/rig/`. Not used in the game yet.
 - **Other flags:** `?mode=`, `?mute=1`, `?model=placeholder`, `?fx=0`. URL tuning (`?g=` etc.) is
   ignored here, because ranked rules only come from the ruleset.
+- **Joud v2 in the game:** `?model=v2` (no debug flag needed) flies `public/models/joud-v2.glb`
+  instead of v1; the default stays v1. `src/mobile/joud-v2-bird.ts` and `joud-clips.ts` are lazy
+  chunks that load only with the switch (about 2 kB gzip, plus the 426 KB GLB in place of v1's
+  359 KB one), and the code-built placeholder flies until the GLB is in. It loads on every tier.
+  The clips follow the game as the viewer's tap demo plays them: `idle` on the home and ready
+  screens, `flap` on each flap, `glide` when it ends, `fall` once the bird sinks faster than 65 %
+  of `maxFall`, `crash` on a hit or game over; pausing holds the pose. Turned −45° and leaning
+  14° towards the camera on a wrapper above the root; the root tilts and squashes as `bird.ts`
+  does for v1, with the same hit flash when effects are on. Rendering only: the core reads
+  `?model=v2` as `joud`, so the hitbox, the rulesets and the sim are unchanged, and the VR pages
+  build to the same files. The debug HUD shows `bird v2 <clip>`.
+- **Model viewer:** `?debug=1&rig=1&model=v2` (or `v1`) replaces the game with a viewer for
+  `public/models/joud-v2.glb`. `src/mobile/model-gate.ts` stops the game from starting there;
+  `main.ts` imports it before `rig-gate.ts`, so `&model=` wins over the rig prototype.
+  - Stills (folded, spread) and the five clips inside the GLB: `idle`, `flap`, `glide`, `fall`,
+    `crash` (24 fps; no clip keys the root bone, which the game moves and tilts).
+  - **Tap** plays them the way the game will, on the game's own physics (`mobile-1`): a tap plays
+    `flap` (0.08 s cross-fade), which ends on `glide`; `fall` starts once the bird sinks faster
+    than 65 % of its terminal speed; the floor or the roof plays `crash`. A tap during `flap`
+    restarts it with a 0.05 s cross-fade, and taps under 0.3 s apart play it at up to 1.6x.
+  - Views: front, three-quarter, side, back, face, top, and the game view (the bird turned as the
+    game draws it: v2 −45° with `?model=v2`, v1 −55° as `src/scene/bird.ts` does). Also the official art beside the model, sockets, blink,
+    the toon look proposal, and `&status=1` (a caption of what is playing, for recordings).
+  - **Presentation tilt:** in the game view the bird leans 14° towards the camera
+    (`PRESENT_TILT`; the `tilt` button or `&tilt=0` turns it off), so the tops of the wings show
+    in a glide although the camera is level. The lean is on a wrapper above the root that turns
+    about the root's own place: the root's position and tilt stay the game's. The game's
+    `?model=v2` bird has the same wrapper.
+  - **Game view tests:** `&bg=game` puts the game's own sky, plaza and ground behind the bird
+    (`src/mobile/game-backdrop.ts`, the code `view.ts` draws the game with) and uses the game
+    camera's fixed frame, so a 390 × 844 window is a phone's screen. The viewer's chunk cannot
+    import from the `play/` entry's chunk, which `model-gate.ts` leaves in an error state, so the
+    gate imports `game-backdrop.ts` and hands it over. With it: `&birdScale=` (the drawn bird
+    only, as in the game), `&turn=` (degrees; the game's turn for that model by default) and `&laneY=` (stills and single
+    clips, lane units), `&scroll=` (the backdrop as after that many lane units of play; 0 is
+    where it stays with effects off), and the `game sky`, `size` and `turn` buttons. `&bg=key` is
+    flat magenta in the same frame, for cutting the bird out. After `npm run build`,
+    `node scripts/run-ts.mjs scripts/model-tests.ts` (needs `ffmpeg`) writes the test sheets of
+    28 Nov 2026 to `docs/screens/model-v2/tests/`: background and outline contrast, size, turn,
+    and test 4, the backdrop pushed back (Joud's outline at three scrolls, and the box edges in
+    autoplayed game frames). `backdrop --before=<dist dir>` puts another build's pictures beside
+    this one's.
+  - The clip rules (fades, fast taps, when glide turns to fall) live in `src/mobile/joud-clips.ts`,
+    shared by the viewer's tap demo and the game's `?model=v2` bird.
+  - The model is built by `tools/blender/build_joud.py`, with the clips' numbers in
+    `tools/blender/joud_clips.py` (Blender, run by hand; neither is a game dependency).
+    After `npm run build`: `npm run model:shots` writes the stills to `docs/screens/model-v2/`,
+    and `npm run model:anim` writes contact sheets and GIFs of the clips to
+    `docs/screens/model-v2/anim/`, each clip also at the size a phone shows the bird
+    (`*_phone-size.gif`, 26 px per model unit), and the glide without and with the tilt side by
+    side. `npm run model:anim -- compare --before=<an earlier joud-v2.glb>` adds
+    `before-after_*`: that model without the tilt beside this one. Both need Playwright's
+    Chromium; `model:anim` also needs `ffmpeg` on the PATH (a machine tool, like Blender:
+    nothing is added to `package.json`).
 - **Offline:** `public/play/sw.js` caches what the first load fetched, so the game works offline
   afterwards. It makes no network calls of its own.
 
@@ -61,7 +117,10 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
   - **Near layer:** 3 m booths with 0.7 m round signs (plain brand discs, no logos), palms
     (4.8 m trunks, 10 fronds) at the measured spacing, and decorative string lights.
   - **Scale:** 1 m = 0.075 (far) or 0.085 (near) lane units.
-  - **Colour:** faded towards cream, so obstacles stay the most saturated thing on screen.
+  - **Colour:** faded towards cream, so obstacles stay the most saturated thing on screen, then
+    pushed back into the sky's blue (`FAR_RECEDE` 55 % and 5 % darker, `NEAR_RECEDE` 40 %), so
+    Joud's cream edges stay clear in front of the façade and the booths (28 Nov 2026: at most
+    4.4 % of his outline lost, was 31.9 %; test 4 in `scripts/model-tests.ts`).
   - **Parallax:** the layers move with the obstacles at 0.15× and 0.4× and wrap per tile.
 - **Campaign box faces** (`box-art.ts`): one canvas atlas of 4 × 4 tiles in the face's shape.
   - **Tiles:**

@@ -1,0 +1,719 @@
+{
+  "note": "Joud's outline against the backdrop as in test 1 (CIELAB ΔE 1976, 2x pixels; lost: ΔE < 10; weak: 10 to 20), turned -45°, at backdrop scroll 0, 6, 12 (lane units). Boxes: the sides and gap ends of every column in 4 game frames (autoplay, effects off, seeds 1592594996, 1592594997, 1592594998, 1592594999, 3900 ms), by what is behind them: booths (lane y < -0.609), façade and palms (< 0.105), sky.",
+  "bird": {
+    "before": {
+      "idle": {
+        "top": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 11.8,
+            "medianDeltaE": 29.1,
+            "pixels": 255
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 11.8,
+            "medianDeltaE": 29.1,
+            "pixels": 255
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 11.8,
+            "medianDeltaE": 29.1,
+            "pixels": 255
+          }
+        },
+        "middle": {
+          "0": {
+            "lostPct": 18.4,
+            "weakPct": 19.6,
+            "medianDeltaE": 23.4,
+            "pixels": 255
+          },
+          "6": {
+            "lostPct": 18.4,
+            "weakPct": 19.6,
+            "medianDeltaE": 23.4,
+            "pixels": 255
+          },
+          "12": {
+            "lostPct": 18.4,
+            "weakPct": 19.6,
+            "medianDeltaE": 23.4,
+            "pixels": 255
+          }
+        },
+        "bottom": {
+          "0": {
+            "lostPct": 13.7,
+            "weakPct": 15.7,
+            "medianDeltaE": 29.5,
+            "pixels": 255
+          },
+          "6": {
+            "lostPct": 12.9,
+            "weakPct": 24.7,
+            "medianDeltaE": 27.5,
+            "pixels": 255
+          },
+          "12": {
+            "lostPct": 11.8,
+            "weakPct": 20,
+            "medianDeltaE": 29.4,
+            "pixels": 255
+          }
+        }
+      },
+      "flap, raised": {
+        "top": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 3.8,
+            "medianDeltaE": 31.8,
+            "pixels": 365
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 3.8,
+            "medianDeltaE": 31.8,
+            "pixels": 365
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 3.8,
+            "medianDeltaE": 31.8,
+            "pixels": 365
+          }
+        },
+        "middle": {
+          "0": {
+            "lostPct": 16.2,
+            "weakPct": 16.2,
+            "medianDeltaE": 25.6,
+            "pixels": 365
+          },
+          "6": {
+            "lostPct": 16.2,
+            "weakPct": 16.2,
+            "medianDeltaE": 25.6,
+            "pixels": 365
+          },
+          "12": {
+            "lostPct": 16.2,
+            "weakPct": 16.2,
+            "medianDeltaE": 25.6,
+            "pixels": 365
+          }
+        },
+        "bottom": {
+          "0": {
+            "lostPct": 20.3,
+            "weakPct": 24.4,
+            "medianDeltaE": 22.5,
+            "pixels": 365
+          },
+          "6": {
+            "lostPct": 17.5,
+            "weakPct": 19.7,
+            "medianDeltaE": 27.3,
+            "pixels": 365
+          },
+          "12": {
+            "lostPct": 18.1,
+            "weakPct": 28.2,
+            "medianDeltaE": 21.7,
+            "pixels": 365
+          }
+        }
+      },
+      "flap, downstroke": {
+        "top": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 8.9,
+            "medianDeltaE": 29,
+            "pixels": 347
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 8.9,
+            "medianDeltaE": 29,
+            "pixels": 347
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 8.9,
+            "medianDeltaE": 29,
+            "pixels": 347
+          }
+        },
+        "middle": {
+          "0": {
+            "lostPct": 31.7,
+            "weakPct": 20.5,
+            "medianDeltaE": 19.3,
+            "pixels": 347
+          },
+          "6": {
+            "lostPct": 31.7,
+            "weakPct": 20.5,
+            "medianDeltaE": 19.3,
+            "pixels": 347
+          },
+          "12": {
+            "lostPct": 31.7,
+            "weakPct": 20.5,
+            "medianDeltaE": 19.3,
+            "pixels": 347
+          }
+        },
+        "bottom": {
+          "0": {
+            "lostPct": 20.7,
+            "weakPct": 22.2,
+            "medianDeltaE": 25.3,
+            "pixels": 347
+          },
+          "6": {
+            "lostPct": 21,
+            "weakPct": 23.3,
+            "medianDeltaE": 23.1,
+            "pixels": 347
+          },
+          "12": {
+            "lostPct": 14.4,
+            "weakPct": 19.3,
+            "medianDeltaE": 30.1,
+            "pixels": 347
+          }
+        }
+      },
+      "glide": {
+        "top": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 6,
+            "medianDeltaE": 29.5,
+            "pixels": 364
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 6,
+            "medianDeltaE": 29.5,
+            "pixels": 364
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 6,
+            "medianDeltaE": 29.5,
+            "pixels": 364
+          }
+        },
+        "middle": {
+          "0": {
+            "lostPct": 28.8,
+            "weakPct": 15.9,
+            "medianDeltaE": 21.5,
+            "pixels": 364
+          },
+          "6": {
+            "lostPct": 29.1,
+            "weakPct": 15.7,
+            "medianDeltaE": 21.5,
+            "pixels": 364
+          },
+          "12": {
+            "lostPct": 28.8,
+            "weakPct": 15.9,
+            "medianDeltaE": 21.5,
+            "pixels": 364
+          }
+        },
+        "bottom": {
+          "0": {
+            "lostPct": 31.9,
+            "weakPct": 22.3,
+            "medianDeltaE": 18.4,
+            "pixels": 364
+          },
+          "6": {
+            "lostPct": 26.6,
+            "weakPct": 21.7,
+            "medianDeltaE": 21.1,
+            "pixels": 364
+          },
+          "12": {
+            "lostPct": 21.7,
+            "weakPct": 23.1,
+            "medianDeltaE": 25.6,
+            "pixels": 364
+          }
+        }
+      },
+      "fall": {
+        "top": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 3.7,
+            "medianDeltaE": 32.9,
+            "pixels": 328
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 3.7,
+            "medianDeltaE": 32.9,
+            "pixels": 328
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 3.7,
+            "medianDeltaE": 32.9,
+            "pixels": 328
+          }
+        },
+        "middle": {
+          "0": {
+            "lostPct": 18,
+            "weakPct": 24.1,
+            "medianDeltaE": 23.9,
+            "pixels": 328
+          },
+          "6": {
+            "lostPct": 18,
+            "weakPct": 24.1,
+            "medianDeltaE": 23.9,
+            "pixels": 328
+          },
+          "12": {
+            "lostPct": 18,
+            "weakPct": 24.1,
+            "medianDeltaE": 23.9,
+            "pixels": 328
+          }
+        },
+        "bottom": {
+          "0": {
+            "lostPct": 29.6,
+            "weakPct": 25.9,
+            "medianDeltaE": 17.9,
+            "pixels": 328
+          },
+          "6": {
+            "lostPct": 27.4,
+            "weakPct": 23.8,
+            "medianDeltaE": 19.1,
+            "pixels": 328
+          },
+          "12": {
+            "lostPct": 19.2,
+            "weakPct": 25,
+            "medianDeltaE": 22.2,
+            "pixels": 328
+          }
+        }
+      }
+    },
+    "after": {
+      "idle": {
+        "top": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 11.8,
+            "medianDeltaE": 29.1,
+            "pixels": 255
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 11.8,
+            "medianDeltaE": 29.1,
+            "pixels": 255
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 11.8,
+            "medianDeltaE": 29.1,
+            "pixels": 255
+          }
+        },
+        "middle": {
+          "0": {
+            "lostPct": 0.8,
+            "weakPct": 40,
+            "medianDeltaE": 23.9,
+            "pixels": 255
+          },
+          "6": {
+            "lostPct": 0.8,
+            "weakPct": 40,
+            "medianDeltaE": 23.9,
+            "pixels": 255
+          },
+          "12": {
+            "lostPct": 0.8,
+            "weakPct": 40,
+            "medianDeltaE": 23.9,
+            "pixels": 255
+          }
+        },
+        "bottom": {
+          "0": {
+            "lostPct": 3.9,
+            "weakPct": 26.3,
+            "medianDeltaE": 26.3,
+            "pixels": 255
+          },
+          "6": {
+            "lostPct": 3.9,
+            "weakPct": 26.7,
+            "medianDeltaE": 23.8,
+            "pixels": 255
+          },
+          "12": {
+            "lostPct": 3.1,
+            "weakPct": 23.1,
+            "medianDeltaE": 24.1,
+            "pixels": 255
+          }
+        }
+      },
+      "flap, raised": {
+        "top": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 3.8,
+            "medianDeltaE": 31.8,
+            "pixels": 365
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 3.8,
+            "medianDeltaE": 31.8,
+            "pixels": 365
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 3.8,
+            "medianDeltaE": 31.8,
+            "pixels": 365
+          }
+        },
+        "middle": {
+          "0": {
+            "lostPct": 4.4,
+            "weakPct": 23.3,
+            "medianDeltaE": 26.4,
+            "pixels": 365
+          },
+          "6": {
+            "lostPct": 4.4,
+            "weakPct": 23.3,
+            "medianDeltaE": 26.4,
+            "pixels": 365
+          },
+          "12": {
+            "lostPct": 4.4,
+            "weakPct": 23.3,
+            "medianDeltaE": 26.4,
+            "pixels": 365
+          }
+        },
+        "bottom": {
+          "0": {
+            "lostPct": 4.1,
+            "weakPct": 26,
+            "medianDeltaE": 25.7,
+            "pixels": 365
+          },
+          "6": {
+            "lostPct": 2.2,
+            "weakPct": 20,
+            "medianDeltaE": 28.7,
+            "pixels": 365
+          },
+          "12": {
+            "lostPct": 1.9,
+            "weakPct": 21.1,
+            "medianDeltaE": 24.6,
+            "pixels": 365
+          }
+        }
+      },
+      "flap, downstroke": {
+        "top": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 8.9,
+            "medianDeltaE": 29,
+            "pixels": 347
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 8.9,
+            "medianDeltaE": 29,
+            "pixels": 347
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 8.9,
+            "medianDeltaE": 29,
+            "pixels": 347
+          }
+        },
+        "middle": {
+          "0": {
+            "lostPct": 2.3,
+            "weakPct": 42.1,
+            "medianDeltaE": 21.6,
+            "pixels": 347
+          },
+          "6": {
+            "lostPct": 2.3,
+            "weakPct": 42.1,
+            "medianDeltaE": 21.6,
+            "pixels": 347
+          },
+          "12": {
+            "lostPct": 2.3,
+            "weakPct": 42.1,
+            "medianDeltaE": 21.6,
+            "pixels": 347
+          }
+        },
+        "bottom": {
+          "0": {
+            "lostPct": 4.3,
+            "weakPct": 28.5,
+            "medianDeltaE": 27.4,
+            "pixels": 347
+          },
+          "6": {
+            "lostPct": 4.3,
+            "weakPct": 30.3,
+            "medianDeltaE": 24.3,
+            "pixels": 347
+          },
+          "12": {
+            "lostPct": 1.7,
+            "weakPct": 21.9,
+            "medianDeltaE": 27.8,
+            "pixels": 347
+          }
+        }
+      },
+      "glide": {
+        "top": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 6,
+            "medianDeltaE": 29.5,
+            "pixels": 364
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 6,
+            "medianDeltaE": 29.5,
+            "pixels": 364
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 6,
+            "medianDeltaE": 29.5,
+            "pixels": 364
+          }
+        },
+        "middle": {
+          "0": {
+            "lostPct": 2.5,
+            "weakPct": 37.1,
+            "medianDeltaE": 23.8,
+            "pixels": 364
+          },
+          "6": {
+            "lostPct": 2.5,
+            "weakPct": 37.1,
+            "medianDeltaE": 23.8,
+            "pixels": 364
+          },
+          "12": {
+            "lostPct": 2.5,
+            "weakPct": 37.1,
+            "medianDeltaE": 23.8,
+            "pixels": 364
+          }
+        },
+        "bottom": {
+          "0": {
+            "lostPct": 3.6,
+            "weakPct": 37.6,
+            "medianDeltaE": 22.9,
+            "pixels": 364
+          },
+          "6": {
+            "lostPct": 3.6,
+            "weakPct": 31.9,
+            "medianDeltaE": 24.3,
+            "pixels": 364
+          },
+          "12": {
+            "lostPct": 0.8,
+            "weakPct": 28.8,
+            "medianDeltaE": 25,
+            "pixels": 364
+          }
+        }
+      },
+      "fall": {
+        "top": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 3.7,
+            "medianDeltaE": 32.9,
+            "pixels": 328
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 3.7,
+            "medianDeltaE": 32.9,
+            "pixels": 328
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 3.7,
+            "medianDeltaE": 32.9,
+            "pixels": 328
+          }
+        },
+        "middle": {
+          "0": {
+            "lostPct": 0,
+            "weakPct": 30.8,
+            "medianDeltaE": 25.5,
+            "pixels": 328
+          },
+          "6": {
+            "lostPct": 0,
+            "weakPct": 30.8,
+            "medianDeltaE": 25.5,
+            "pixels": 328
+          },
+          "12": {
+            "lostPct": 0,
+            "weakPct": 30.8,
+            "medianDeltaE": 25.5,
+            "pixels": 328
+          }
+        },
+        "bottom": {
+          "0": {
+            "lostPct": 2.7,
+            "weakPct": 30.5,
+            "medianDeltaE": 24.9,
+            "pixels": 328
+          },
+          "6": {
+            "lostPct": 2.7,
+            "weakPct": 25.6,
+            "medianDeltaE": 26.4,
+            "pixels": 328
+          },
+          "12": {
+            "lostPct": 1.5,
+            "weakPct": 23.2,
+            "medianDeltaE": 26.5,
+            "pixels": 328
+          }
+        }
+      }
+    }
+  },
+  "worstPerPlace": {
+    "before": {
+      "top": {
+        "lostPct": 0,
+        "weakPct": 11.8,
+        "medianDeltaE": 29.1,
+        "pixels": 255
+      },
+      "middle": {
+        "lostPct": 31.7,
+        "weakPct": 20.5,
+        "medianDeltaE": 19.3,
+        "pixels": 347
+      },
+      "bottom": {
+        "lostPct": 31.9,
+        "weakPct": 22.3,
+        "medianDeltaE": 18.4,
+        "pixels": 364
+      }
+    },
+    "after": {
+      "top": {
+        "lostPct": 0,
+        "weakPct": 11.8,
+        "medianDeltaE": 29.1,
+        "pixels": 255
+      },
+      "middle": {
+        "lostPct": 4.4,
+        "weakPct": 23.3,
+        "medianDeltaE": 26.4,
+        "pixels": 365
+      },
+      "bottom": {
+        "lostPct": 4.3,
+        "weakPct": 28.5,
+        "medianDeltaE": 27.4,
+        "pixels": 347
+      }
+    }
+  },
+  "boxes": {
+    "before": {
+      "sky": {
+        "lostPct": 0,
+        "weakPct": 0,
+        "medianDeltaE": 68.8,
+        "p5DeltaE": 47.6,
+        "pixels": 3038
+      },
+      "facade": {
+        "lostPct": 0,
+        "weakPct": 0.2,
+        "medianDeltaE": 71.7,
+        "p5DeltaE": 36.7,
+        "pixels": 2599
+      },
+      "booths": {
+        "lostPct": 0,
+        "weakPct": 1,
+        "medianDeltaE": 76.3,
+        "p5DeltaE": 33.5,
+        "pixels": 1250
+      }
+    },
+    "after": {
+      "sky": {
+        "lostPct": 0,
+        "weakPct": 0,
+        "medianDeltaE": 68.8,
+        "p5DeltaE": 47.6,
+        "pixels": 3038
+      },
+      "facade": {
+        "lostPct": 0,
+        "weakPct": 0,
+        "medianDeltaE": 69.8,
+        "p5DeltaE": 52,
+        "pixels": 2599
+      },
+      "booths": {
+        "lostPct": 0,
+        "weakPct": 0,
+        "medianDeltaE": 73.3,
+        "p5DeltaE": 45.7,
+        "pixels": 1250
+      }
+    }
+  }
+}

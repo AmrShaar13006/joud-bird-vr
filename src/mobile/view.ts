@@ -16,6 +16,7 @@ import {
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  type Object3D,
   OrthographicCamera,
   PlaneGeometry,
   Scene,
@@ -28,21 +29,24 @@ import type { Config } from '../core/config';
 import type { Game } from '../core/game';
 import type { ObstacleKind, PointsTable } from '../core/ruleset';
 import { Bird } from '../scene/bird';
-import { BRAND, buildFlowerStrip } from '../scene/scenery';
-import {
-  buildFacade,
-  buildPlazaRow,
-  FAR_PARALLAX,
-  FAR_TILE_M,
-  FAR_METRE,
-  layerOffset,
-  NEAR_METRE,
-  NEAR_PARALLAX,
-  NEAR_TILE_M,
-} from './backdrop';
+import { BRAND } from '../scene/scenery';
 import { ScoreBurst } from '../scene/burst';
+import { addGameBackdrop, type GameBackdrop, gameBackground, laneFrame, scrollBackdrop } from './game-backdrop';
 import { boxTile, type Column, drawBoxAtlas, tileRect, wordColumn } from './box-art';
 import { badgeKey, badgeRect, type Cue, cueFor, drawBadgeAtlas, SPARKLE_TILE } from './cues';
+
+/**
+ * What the view needs from a bird: v1 (src/scene/bird.ts, also the VR pages' bird) or, behind
+ * ?model=v2, Joud v2 (joud-v2-bird.ts, loaded lazily). `root` sits at the hitbox centre.
+ */
+export interface GameBird {
+  readonly root: Object3D;
+  /** For the debug HUD. */
+  readonly status: string;
+  onFlap(): void;
+  onHit(): void;
+  update(game: Game, dt: number, time: number): void;
+}
 
 export interface ViewOptions {
   /** Load joud.glb (false: the code-built placeholder bird). */
@@ -56,6 +60,8 @@ export interface ViewOptions {
   atlasScale?: number;
   /** The ruleset's points table: badges show exactly what a gap pays. */
   points: Readonly<PointsTable>;
+  /** Debug only (`?debug=1&birdScale=`): size of the drawn bird, 1 by default. The hitbox stays cfg.birdRadius. */
+  birdScale?: number;
 }
 
 const BOX_H = 0.06;
@@ -98,8 +104,6 @@ function tiledPlanes(material: MeshBasicMaterial, max: number): { mesh: Instance
   mesh.count = 0;
   return { mesh, tiles };
 }
-/** Ground and flowers visible under the lane. */
-const GROUND_MARGIN = 0.22;
 /** The Bird model's body radius is ≈ 0.12 at its own scale. */
 const BIRD_MODEL_RADIUS = 0.12;
 const STRIPES_PER_UPDRAFT = 12;
@@ -133,23 +137,11 @@ function flowerGeometry(): BufferGeometry {
   return mergeGeometries(parts)!;
 }
 
-/** Vertical gradient plane (sky). */
-function gradientPlane(w: number, h: number, top: Color, bottom: Color): Mesh {
-  const g = new PlaneGeometry(w, h, 1, 1);
-  const col: number[] = [];
-  const pos = g.getAttribute('position');
-  for (let i = 0; i < pos.count; i++) {
-    const c = pos.getY(i) > 0 ? top : bottom;
-    col.push(c.r, c.g, c.b);
-  }
-  g.setAttribute('color', new Float32BufferAttribute(col, 3));
-  return new Mesh(g, new MeshBasicMaterial({ vertexColors: true }));
-}
 
 export class MobileView {
   readonly scene = new Scene();
   readonly camera = new OrthographicCamera(-0.5, 0.5, 1, -1, 0.1, 20);
-  readonly bird: Bird;
+  bird: GameBird;
   private readonly birdHolder = new Group();
   private readonly boxes: InstancedMesh;
   /** Per-box atlas tile rectangle (u0, v0, width, height). */
@@ -169,12 +161,11 @@ export class MobileView {
   private readonly tmpScale = new Vector3();
   private cfg: Readonly<Config>;
   private fx: boolean;
-  private strip: Mesh | null = null;
-  private readonly facade: Mesh;
-  private readonly plaza: Mesh;
+  private readonly backdrop: GameBackdrop;
   /** Backdrop scroll distance (lane units); render-only. */
   private scroll = 0;
   private glbWanted: boolean;
+  private readonly birdScale: number;
 
   // Interpolation: state before the last fixed step.
   private prevBirdY = 0;
@@ -186,40 +177,10 @@ export class MobileView {
   constructor(cfg: Readonly<Config>, opts: ViewOptions) {
     this.cfg = cfg;
     this.fx = opts.fx;
+    this.birdScale = opts.birdScale ?? 1;
     const s = this.scene;
-    s.background = new Color(BRAND.sky).lerp(new Color('#ffffff'), 0.55);
-
-    const skyTop = new Color(BRAND.sky).lerp(new Color('#ffffff'), 0.45);
-    const skyBottom = new Color(BRAND.butter).lerp(new Color('#ffffff'), 0.25);
-    const sky = gradientPlane(8, cfg.laneH + 0.02, skyTop, skyBottom);
-    sky.position.z = -2;
-    s.add(sky);
-
-    // The event plaza (src/mobile/backdrop.ts): façade far back, booths and palms nearer.
-    const layerMat = new MeshBasicMaterial({ vertexColors: true });
-    this.facade = new Mesh(buildFacade(), layerMat);
-    this.facade.scale.set(FAR_METRE, FAR_METRE, 1);
-    this.facade.position.set(0, -cfg.laneH / 2, -1.9);
-    this.plaza = new Mesh(buildPlazaRow(), layerMat);
-    this.plaza.scale.set(NEAR_METRE, NEAR_METRE, 1);
-    this.plaza.position.set(0, -cfg.laneH / 2, -1.7);
-    this.plaza.visible = opts.scenery;
-    s.add(this.facade, this.plaza);
-
-    const ground = new Mesh(new PlaneGeometry(8, 3), new MeshBasicMaterial({ color: BRAND.leafGreen }));
-    ground.position.set(0, -cfg.laneH / 2 - 1.5, -1.5);
-    s.add(ground);
-
-    {
-      // The VR strip is 0.3 tall at its own scale; here it fills the ground margin.
-      const strip = new Mesh(buildFlowerStrip(2.4 / 0.45, 0.3), new MeshBasicMaterial({ vertexColors: true }));
-      const k = (GROUND_MARGIN * 0.8) / 0.3;
-      strip.scale.set(0.45 * k * 0.5, k * 0.5, 0.01);
-      strip.position.set(0, -cfg.laneH / 2 - GROUND_MARGIN * 0.75, -1);
-      strip.visible = opts.scenery;
-      this.strip = strip;
-      s.add(strip);
-    }
+    s.background = gameBackground();
+    this.backdrop = addGameBackdrop(s, cfg.laneH, opts.scenery);
 
     // Lights for the Lambert bird.
     s.add(new HemisphereLight('#ffffff', '#88aa77', 2.2));
@@ -282,13 +243,14 @@ export class MobileView {
     masks.position.z = 1;
     s.add(masks);
 
-    this.bird = new Bird(opts.fx);
-    this.birdHolder.add(this.bird.root);
+    const bird = new Bird(opts.fx);
+    this.bird = bird;
+    this.birdHolder.add(bird.root);
     this.birdHolder.position.z = 0.5;
     s.add(this.birdHolder);
     this.setConfig(cfg);
     this.glbWanted = opts.model;
-    if (opts.model) void this.bird.load(opts.glbUrl).then(() => this.setBirdDetail(this.glbWanted));
+    if (opts.model) void bird.load(opts.glbUrl).then(() => this.setBirdDetail(this.glbWanted));
 
     this.camera.position.set(0, 0, 10);
   }
@@ -301,14 +263,21 @@ export class MobileView {
   }
 
   setScenery(on: boolean): void {
-    if (this.strip) this.strip.visible = on;
-    this.plaza.visible = on;
+    this.backdrop.strip.visible = on;
+    this.backdrop.plaza.visible = on;
   }
 
-  /** joud.glb (if loaded) or the code-built placeholder. Glasses and legs stay. */
+  /** Draw `bird` from now on in place of the one drawn so far (?model=v2, once it has loaded). */
+  useBird(bird: GameBird): void {
+    this.birdHolder.remove(this.bird.root);
+    this.bird = bird;
+    this.birdHolder.add(bird.root);
+  }
+
+  /** v1: joud.glb (if loaded) or the code-built placeholder. Glasses and legs stay. */
   setBirdDetail(glb: boolean): void {
     this.glbWanted = glb;
-    if (this.bird.status !== 'joud') return;
+    if (!(this.bird instanceof Bird) || this.bird.status !== 'joud') return;
     const model = this.bird.root.children[0];
     for (const child of model.children) {
       if (child.name === 'BirdGlassesLegs') continue;
@@ -318,25 +287,12 @@ export class MobileView {
 
   setConfig(cfg: Readonly<Config>): void {
     this.cfg = cfg;
-    this.birdHolder.scale.setScalar(cfg.birdRadius / BIRD_MODEL_RADIUS);
+    this.birdHolder.scale.setScalar((cfg.birdRadius / BIRD_MODEL_RADIUS) * this.birdScale);
   }
 
   /** Fit lane + ground into a w × h canvas (contain). */
   resize(w: number, h: number): void {
-    const cfg = this.cfg;
-    const aspect = w / Math.max(1, h);
-    const needW = cfg.laneW;
-    const needH = cfg.laneH + GROUND_MARGIN;
-    let halfW: number;
-    let halfH: number;
-    if (aspect > needW / needH) {
-      halfH = needH / 2;
-      halfW = halfH * aspect;
-    } else {
-      halfW = needW / 2;
-      halfH = halfW / aspect;
-    }
-    const cy = -GROUND_MARGIN / 2;
+    const { halfW, halfH, cy } = laneFrame(this.cfg.laneW, this.cfg.laneH, w, h);
     const c = this.camera;
     c.left = -halfW;
     c.right = halfW;
@@ -444,8 +400,7 @@ export class MobileView {
       const v = game.state === 'playing' ? game.speed : idle ? 0.06 : 0;
       this.scroll += v * dt;
     }
-    this.facade.position.x = layerOffset(this.scroll, FAR_PARALLAX, FAR_TILE_M * FAR_METRE);
-    this.plaza.position.x = layerOffset(this.scroll, NEAR_PARALLAX, NEAR_TILE_M * NEAR_METRE);
+    scrollBackdrop(this.backdrop, this.scroll);
 
     // Obstacles.
     this.boxCount = 0;

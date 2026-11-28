@@ -1,0 +1,135 @@
+{
+ "lambert": {
+  "model": "v2",
+  "pose": "glide",
+  "view": "three-quarter",
+  "look": "lambert",
+  "ref": false,
+  "calls": 1,
+  "triangles": 7788,
+  "fps": 44,
+  "bytes": 436168,
+  "joints": [
+   "root",
+   "body",
+   "head",
+   "eye_ctrl",
+   "glasses",
+   "leg_upper_L",
+   "leg_lower_L",
+   "leg_upper_R",
+   "leg_lower_R",
+   "wing_shoulder_L",
+   "wing_mid_L",
+   "wing_tip_L",
+   "wing_fan_L",
+   "wing_shoulder_R",
+   "wing_mid_R",
+   "wing_tip_R",
+   "wing_fan_R"
+  ],
+  "sockets": [
+   "socket_eyes",
+   "socket_head_top",
+   "socket_back",
+   "socket_chest",
+   "socket_neck",
+   "socket_feet"
+  ],
+  "clips": [
+   {
+    "name": "idle",
+    "duration": 6,
+    "loop": true
+   },
+   {
+    "name": "flap",
+    "duration": 0.4166666567325592,
+    "loop": false
+   },
+   {
+    "name": "glide",
+    "duration": 1.2083333730697632,
+    "loop": true
+   },
+   {
+    "name": "fall",
+    "duration": 0.2916666567325592,
+    "loop": true
+   },
+   {
+    "name": "crash",
+    "duration": 0.5833333134651184,
+    "loop": false
+   }
+  ],
+  "presentTilt": 14
+ },
+ "toon": {
+  "model": "v2",
+  "pose": "glide",
+  "view": "three-quarter",
+  "look": "toon",
+  "ref": false,
+  "calls": 2,
+  "triangles": 15576,
+  "fps": 34,
+  "bytes": 436168,
+  "joints": [
+   "root",
+   "body",
+   "head",
+   "eye_ctrl",
+   "glasses",
+   "leg_upper_L",
+   "leg_lower_L",
+   "leg_upper_R",
+   "leg_lower_R",
+   "wing_shoulder_L",
+   "wing_mid_L",
+   "wing_tip_L",
+   "wing_fan_L",
+   "wing_shoulder_R",
+   "wing_mid_R",
+   "wing_tip_R",
+   "wing_fan_R"
+  ],
+  "sockets": [
+   "socket_eyes",
+   "socket_head_top",
+   "socket_back",
+   "socket_chest",
+   "socket_neck",
+   "socket_feet"
+  ],
+  "clips": [
+   {
+    "name": "idle",
+    "duration": 6,
+    "loop": true
+   },
+   {
+    "name": "flap",
+    "duration": 0.4166666567325592,
+    "loop": false
+   },
+   {
+    "name": "glide",
+    "duration": 1.2083333730697632,
+    "loop": true
+   },
+   {
+    "name": "fall",
+    "duration": 0.2916666567325592,
+    "loop": true
+   },
+   {
+    "name": "crash",
+    "duration": 0.5833333134651184,
+    "loop": false
+   }
+  ],
+  "presentTilt": 14
+ },
+ "note": "headless Chromium with SwiftShader (software WebGL): fps only compares the looks"
+}
