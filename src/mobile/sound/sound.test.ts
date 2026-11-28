@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GameEvent } from '../../core/game';
-import { BUZZ, type FramePlan, jitter, planFrame, scoreCue } from './director';
+import { BUZZ, type FramePlan, flapLift, jitter, planFrame, scoreCue } from './director';
 import { BAR, BPM, layerFor, MAQSUM, PULSE } from './percussion';
 import { CHIME_STEPS, chimeStep } from './voices';
 import { KEYS, type KeyStore, loadSoundSettings, saveSoundSetting } from './settings';
@@ -41,6 +41,14 @@ describe('sound director', () => {
     planFrame(['flap'], 0, out);
     expect(out.cues).toBe(cues);
     expect(out).toEqual({ cues: ['flap'], buzz: null });
+  });
+
+  it('lifts the flap 2% per quick tap, up to 8%, and resets after a pause', () => {
+    let lift = 0;
+    for (let i = 0; i < 6; i++) lift = flapLift(lift, 0.2);
+    expect(lift).toBeCloseTo(0.08);
+    expect(flapLift(lift, 0.5)).toBe(0);
+    expect(flapLift(0, -1)).toBe(0);
   });
 
   it('varies pitch by at most 3%', () => {

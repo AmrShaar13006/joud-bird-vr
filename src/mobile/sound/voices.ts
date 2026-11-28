@@ -1,5 +1,5 @@
 // Every sound of the phone game, synthesised with Web Audio: no files, no instruments. The
-// sound world is a garden: Joud's chirps, wing beats, sparkles and drums, and the score chime
+// sound world is a garden: Joud's chirps, a soft tonal flap, sparkles and drums, and the score chime
 // that climbs a pentatonic scale with each point of a run (as in the first version; Joud
 // approved the climb on 28 Nov 2026). Each voice draws into a Kit, so the
 // same code plays live in the game and renders offline to .wav (scripts/sound/render-samples.mjs).
@@ -17,7 +17,8 @@ export interface Kit {
  * still. Change loudness here only.
  */
 export const LOUD = {
-  wing: 1.7,
+  flap: 0.26,
+  ruffle: 0.5,
   blip: 0.29,
   chime: 0.3,
   chirp: 0.16,
@@ -31,7 +32,7 @@ export const LOUD = {
 } as const;
 
 /** Flap voices: a setting, so flap-sound items can add more later. */
-export const FLAP_VOICES = ['wings', 'blip'] as const;
+export const FLAP_VOICES = ['puff', 'peep', 'flutter', 'blip'] as const;
 export type FlapVoice = (typeof FLAP_VOICES)[number];
 
 /** The chime's first pitch (as the first version). */
@@ -171,16 +172,28 @@ export function distantBird(k: Kit, t: number, r: number): void {
 
 // ---------- effects ----------
 
-/** `rate`: pitch factor for the ±3% variation (1 = none). */
+/**
+ * The flap: pure tones only (no noise), short and soft, gliding up like the lift of a wing beat.
+ * `rate`: pitch factor (the ±3% variation, raised a little by quick taps; see SoundEngine).
+ */
 export function flap(k: Kit, t: number, voice: FlapVoice, rate = 1): void {
-  if (voice === 'blip') {
-    tone(k, t, 'triangle', 420 * rate, 720 * rate, 0.08, LOUD.blip, 0.004, 0.12);
-    return;
+  const L = LOUD.flap;
+  switch (voice) {
+    case 'puff': // a round little "bwip" rising, like a bubble lifting
+      tone(k, t, 'sine', 340 * rate, 580 * rate, 0.055, L, 0.008, 0.09);
+      tone(k, t, 'sine', 680 * rate, 1160 * rate, 0.055, L * 0.15, 0.005, 0.06);
+      return;
+    case 'peep': // Joud's tiny peep on each beat
+      chirp(k, t, 1900 * rate, 2500 * rate, 2250 * rate, 0.045, 2, 0.02);
+      tone(k, t, 'sine', 420 * rate, 560 * rate, 0.04, L * 0.45, 0.004, 0.05);
+      return;
+    case 'flutter': // two quick soft flits: "flit-flit"
+      tone(k, t, 'sine', 520 * rate, 700 * rate, 0.03, L * 1.25, 0.004, 0.05);
+      tone(k, t + 0.045, 'sine', 600 * rate, 820 * rate, 0.03, L * 0.95, 0.004, 0.06);
+      return;
+    case 'blip': // the first version's flap
+      tone(k, t, 'triangle', 420 * rate, 720 * rate, 0.08, LOUD.blip, 0.004, 0.12);
   }
-  // Two soft wing beats, like feathers pushing air: low, short, never hissy.
-  noise(k, t, 'lowpass', 700 * rate, 0.8, LOUD.wing, 0.05, 1300 * rate, 0.008);
-  noise(k, t + 0.05, 'lowpass', 750 * rate, 0.8, LOUD.wing * 0.6, 0.045, 1400 * rate, 0.008);
-  tone(k, t, 'sine', 150 * rate, 95 * rate, 0.05, LOUD.wing * 0.08, 0.004, 0.05);
 }
 
 /** The score chime: a bright bell-like tone with its octave. `step` from chimeStep(). */
@@ -239,7 +252,7 @@ export function hit(k: Kit, t: number): void {
   tone(k, t, 'sine', 170, 60, 0.25, LOUD.thump, 0.006, 0.32);
   noise(k, t, 'lowpass', 700, 0.7, LOUD.thump * 0.3, 0.18);
   chirp(k, t + 0.04, 2900, 3100, 1500, 0.2, 0.9, 0.1);
-  for (let i = 0; i < 3; i++) noise(k, t + 0.08 + i * 0.05, 'lowpass', 900, 0.8, LOUD.wing * (0.3 - i * 0.07), 0.04, 1300, 0.006);
+  for (let i = 0; i < 3; i++) noise(k, t + 0.08 + i * 0.05, 'lowpass', 900, 0.8, LOUD.ruffle * (1 - i * 0.25), 0.04, 1300, 0.006);
 }
 
 /** New best: Joud sings a run of chirps and a trill, a sparkle, and a doum to finish. Starts 0.35 s late, after the crash. */

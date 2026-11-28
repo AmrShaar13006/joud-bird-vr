@@ -3,7 +3,7 @@
 // Buses: effects and percussion → master gain → limiter → speakers.
 
 import type { GameEvent } from '../../core/game';
-import { type Cue, type FramePlan, jitter, planFrame } from './director';
+import { type Cue, type FramePlan, flapLift, jitter, planFrame } from './director';
 import { vibrate } from './haptics';
 import type { SoundSettings } from './settings';
 import * as V from './voices';
@@ -57,7 +57,10 @@ export class SoundEngine {
   private kit: V.Kit | null = null;
   private readonly plan: FramePlan = { cues: [], buzz: null };
   private voiceEnds: number[] = [];
-  flapVoice: V.FlapVoice = 'wings';
+  flapVoice: V.FlapVoice = 'puff';
+  /** Quick taps lift the flap's pitch a little (up to +8%); a pause resets it. */
+  private lift = 0;
+  private lastFlap = -1;
 
   constructor(readonly settings: SoundSettings) {}
 
@@ -136,7 +139,13 @@ export class SoundEngine {
       if (this.voiceEnds.length >= MAX_VOICES) return;
       this.voiceEnds.push(t + VOICE_LIFE);
     }
-    playCue(k, cue, t, this.flapVoice, jitter(Math.random()), run);
+    let rate = jitter(Math.random());
+    if (cue === 'flap') {
+      this.lift = flapLift(this.lift, this.lastFlap < 0 ? -1 : t - this.lastFlap);
+      this.lastFlap = t;
+      rate *= 1 + this.lift;
+    }
+    playCue(k, cue, t, this.flapVoice, rate, run);
   }
 
   /** Quiet tick for buttons. */

@@ -27,9 +27,13 @@ const code = (Array.isArray(bundle) ? bundle : [bundle]).flatMap((o) => o.output
 
 // name → seconds and what plays (cue names from director.ts; `at` in seconds; `rate` pitch factor).
 const SAMPLES = {
-  'flap-wings': { dur: 0.4, play: [{ cue: 'flap', voice: 'wings' }] },
-  'flap-wings-x4': { dur: 1.3, play: [0.98, 1.02, 0.97, 1.01].map((rate, i) => ({ cue: 'flap', at: i * 0.3, rate })) },
-  'flap-blip-old': { dur: 0.4, play: [{ cue: 'flap', voice: 'blip' }] },
+  // Each flap voice: 6 taps, the last 3 quick (their pitch lifts, as in the game).
+  ...Object.fromEntries(
+    ['puff', 'peep', 'flutter', 'blip'].map((voice) => [
+      `flap-${voice}${voice === 'blip' ? '-old' : ''}`,
+      { dur: 2.0, play: [0, 0.4, 0.8, 1.2, 1.4, 1.6].map((at, i) => ({ cue: 'flap', voice, at, rate: [1, 1.02, 0.98, 1, 1.03, 1.06][i] })) },
+    ]),
+  ),
   'point-1-chime': { dur: 0.6, play: [{ cue: 'point' }] },
   'run-12-points-climbing': { dur: 4.6, play: Array.from({ length: 12 }, (_, i) => ({ cue: 'point', at: i * 0.35, run: i + 1 })) },
   'point-2': { dur: 0.7, play: [{ cue: 'point2' }] },
@@ -81,7 +85,7 @@ for (const [name, spec] of Object.entries(SAMPLES)) {
         if (spec.preview) S.schedulePreview(kit, LEAD);
         for (const p of spec.play ?? []) {
           if (p.cue === 'tick') S.tick(kit, LEAD + (p.at ?? 0));
-          else S.playCue(kit, p.cue, LEAD + (p.at ?? 0), p.voice ?? 'wings', p.rate ?? 1, p.run ?? 1);
+          else S.playCue(kit, p.cue, LEAD + (p.at ?? 0), p.voice ?? 'puff', p.rate ?? 1, p.run ?? 1);
         }
         return (await ctx.startRendering()).getChannelData(0).subarray(Math.round(LEAD * RATE));
       }
