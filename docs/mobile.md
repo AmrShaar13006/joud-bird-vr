@@ -28,7 +28,7 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
     `view.snapshot`) and the current one, using `game.alpha`. This is render-only, so 90 and
     120 Hz screens stay smooth.
   - `visibilitychange` (hidden), `blur` and `pagehide` call `game.suspend()`.
-  - Audio unlocks on the first tap.
+  - Audio unlocks on the first tap (see Sound below).
 - **Seeds:** `getRunSpec(mode, practice, ticket)` in `run-spec.ts` is the only place a round's seed
   is chosen.
   - Ranked rounds use a server ticket (step 2, `docs/server.md`).
@@ -107,6 +107,34 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
 - **Rendering only:** tiers never touch the sim, so runs replay identically on every tier.
 - **Budget (same as VR):** under 50 draw calls (the page uses 8–12; 8 on low), no shadows, no
   post-processing, Lambert/Basic materials.
+
+### Sound (`src/mobile/sound/`; VR keeps `src/scene/audio.ts`)
+
+- Synthesised with Web Audio: no audio files, no dependencies, no instruments. The sound world
+  is a garden: Joud's chirps, the first version's flap, glints, drums, and the score chime.
+- `director.ts` maps a frame's `game.events` (plus the obstacle points gained and the obstacles
+  passed) to sounds and vibration: flap the first version's soft rising blip, exactly as the
+  live game plays it but 6 dB quieter against the chime (Amr chose it over every newer flap, then
+  asked for it a little quieter; the voice is a setting, `classic`, so flap-sound items can add
+  more), +1 the chime, which climbs
+  a pentatonic scale with each point of a run as in the first version (Joud approved the climb),
+  +2 the chime with glints, +3 with Joud's "twee-tweet", +5 with a trill, flower a bud opening,
+  hit a soft thump with a startled chirp, new best a run of chirps, a trill and a doum. The core
+  never knows sound exists.
+- Vibration (Android only) on hit, new best and +5. Never on flap.
+- Two switches, «المؤثرات» (effects and vibration) and «الإيقاع» (percussion layer), in
+  `localStorage`. An old `muted = 1` turns both off; `?mute=1` starts both off.
+- The iPhone silent switch is respected (`navigator.audioSession.type = 'ambient'` where
+  supported). The context resumes on the next tap after an interruption, and suspends when the
+  page is hidden.
+- Master gain → limiter (`DynamicsCompressorNode`) → speakers. Loudness lives in `LOUD`
+  (`voices.ts`). `npm run sound:samples` renders every sound and the 20-second percussion preview
+  to `.tmp/sound/*.wav` and prints peak and loudest-50-ms levels (`SOUND_CHROMIUM` picks a
+  Chromium binary).
+- The percussion layer (`percussion.ts`: a breeze, then frame drum and far-off birds from score
+  10, maqsum darbuka from 25, 96 BPM) is only in the debug sampler for now: `?debug=1&sounds=1` shows a button per sound.
+- `check:mobile` keeps the eager sound code at most 4 kB gzip and the percussion layer and the
+  sampler out of the first load.
 
 ### Practice
 - Same ruleset, a fresh random seed every round.

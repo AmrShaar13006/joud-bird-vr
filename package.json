@@ -18,6 +18,7 @@
     "fixtures": "node scripts/run-ts.mjs scripts/gen-fixtures.ts && node scripts/build-sim.mjs",
     "build:sim": "node scripts/build-sim.mjs",
     "check:mobile": "node scripts/check-mobile-bundle.mjs",
+    "sound:samples": "node scripts/sound/render-samples.mjs",
     "preview": "vite preview",
     "rig:shots": "node scripts/run-ts.mjs scripts/rig-shots.ts"
   },

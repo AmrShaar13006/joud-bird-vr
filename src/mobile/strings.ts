@@ -37,8 +37,10 @@ export const M = {
   rotate: 'لف جوالك',
   rotateHint: 'اللعبة تُلعب والجوال عمودي',
 
-  soundOn: 'الصوت: يعمل',
-  soundOff: 'الصوت: مكتوم',
+  effectsOn: 'المؤثرات: تعمل',
+  effectsOff: 'المؤثرات: مكتومة',
+  percussionOn: 'الإيقاع: يعمل',
+  percussionOff: 'الإيقاع: مكتوم',
 
   // Ranked play (step 2: verified by the server).
   offlinePractice: 'بدون اتصال: جولة تدريب',
