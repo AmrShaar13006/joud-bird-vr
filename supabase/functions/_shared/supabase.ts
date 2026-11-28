@@ -2,6 +2,7 @@
 // `Db` implementation over the SQL functions in supabase/migrations, CORS and JSON replies.
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.119.2';
+import type { Accounts } from './accounts.ts';
 import type { Db, IssueResult, Reply, RunRow, StoredRun, Ticket } from './types.ts';
 import { MAX_BODY_BYTES } from './types.ts';
 
@@ -102,22 +103,67 @@ export function supabaseDb(admin: SupabaseClient): Db {
   };
 }
 
-/** Shared request plumbing: CORS preflight, POST only, a signed-in player, JSON body. */
-export async function serve(
+/** Accounts over Supabase Auth's admin API (service key) and the SQL functions. */
+export function supabaseAccounts(admin: SupabaseClient): Accounts {
+  return {
+    async signUpAllowed() {
+      const { data, error } = await admin.rpc('sign_up_allowed');
+      if (error) throw error;
+      return data === true;
+    },
+    async createUser(email, passcode) {
+      const { data, error } = await admin.auth.admin.createUser({ email, password: passcode, email_confirm: true });
+      if (error) {
+        if (error.code === 'email_exists' || (error.status === 422 && /already/i.test(error.message))) return 'taken';
+        throw error;
+      }
+      return { id: data.user.id };
+    },
+    async createAccount(userId, enrolYear) {
+      const { error } = await admin.rpc('create_account', { p_user: userId, p_enrol_year: enrolYear });
+      if (error) throw error;
+    },
+    async deleteUser(userId) {
+      const { error } = await admin.auth.admin.deleteUser(userId);
+      if (error) throw error;
+    },
+  };
+}
+
+/**
+ * Shared request plumbing: CORS preflight, POST only, the signed-in player (required unless
+ * `needUser` is false), a JSON body, and a 500 for anything thrown.
+ */
+async function handleRequest(
   req: Request,
-  handle: (db: Db, userId: string, body: unknown) => Promise<Reply>,
+  needUser: boolean,
+  handle: (admin: SupabaseClient, userId: string | null, body: unknown) => Promise<Reply>,
 ): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ status: 405, body: { error: 'POST only' } });
   const admin = adminClient();
-  const user = await playerId(req, admin);
-  if (!user) return json({ status: 401, body: { error: 'signIn' } });
+  const user = needUser ? await playerId(req, admin) : null;
+  if (needUser && !user) return json({ status: 401, body: { error: 'signIn' } });
   const body = await readBody(req);
   if (body === undefined) return json({ status: 400, body: { error: 'badRequest' } });
   try {
-    return json(await handle(supabaseDb(admin), user, body));
+    return json(await handle(admin, user, body));
   } catch (e) {
     console.error(e);
     return json({ status: 500, body: { error: 'server' } });
   }
+}
+
+/** issue-run and submit-run: a signed-in player and the runs database. */
+export function serve(req: Request, handle: (db: Db, userId: string, body: unknown) => Promise<Reply>): Promise<Response> {
+  return handleRequest(req, true, (admin, user, body) => handle(supabaseDb(admin), user!, body));
+}
+
+/** sign-up (no player yet) and delete-account (the signed-in player). */
+export function serveAccounts(
+  req: Request,
+  needUser: boolean,
+  handle: (accounts: Accounts, userId: string | null, body: unknown) => Promise<Reply>,
+): Promise<Response> {
+  return handleRequest(req, needUser, (admin, user, body) => handle(supabaseAccounts(admin), user, body));
 }

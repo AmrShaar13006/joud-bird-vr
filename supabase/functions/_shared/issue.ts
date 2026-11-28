@@ -12,7 +12,8 @@ export async function issueRun(db: Db, userId: string, body: unknown, seed: () =
   const mode = (body as { mode?: unknown } | null)?.mode;
   if (!isMode(mode)) return { status: 400, body: { error: 'badMode' } };
   const r = await db.issueTicket(userId, RANKED_RULESET, mode, seed(), TICKET_TTL_S);
-  if (!r.ok) return { status: 429, body: { error: r.reason } };
+  // No complete student profile (a guest, an old anonymous session, an unfinished sign-up): 403.
+  if (!r.ok) return { status: r.reason === 'needsProfile' ? 403 : 429, body: { error: r.reason } };
   return {
     status: 200,
     body: {
