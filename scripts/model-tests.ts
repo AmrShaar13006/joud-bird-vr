@@ -9,8 +9,8 @@
 // Usage: npm run build && node scripts/run-ts.mjs scripts/model-tests.ts   (only some: ... background turn)
 // Needs Playwright's Chromium (or MODEL_CHROMIUM, as model:shots) and ffmpeg on the PATH (as model:anim).
 //
-// Writes docs/screens/model-v2/tests/: test1_background.png, test1_contrast.json, test2_size.png,
-// test3_turn.png.
+// Writes docs/screens/model-v2/tests/: test1_background.png and test1_contrast.json, test2_size.png
+// and test2_size.json, test3_turn.png and test3_turn.json (the numbers behind each sheet).
 //
 // Phone size: the screen is rendered at 2x and scaled down to 1x (lanczos), so a model unit is
 // 26 px, as on a phone. The outline measure: the bird is cut out on a flat key colour (&bg=key) in
@@ -220,6 +220,41 @@ function measure(key: Buffer, back: Buffer | number[], w: number, h: number): Ou
   return { pixels: m, lost: m ? lost / m : 0, weak: m ? weak / m : 0, median: m ? des[m >> 1] : 0, map };
 }
 
+/** The bird's extent at phone size (CSS px from its root, the hitbox centre), cut out on &bg=key. */
+interface Extent {
+  above: number;
+  below: number;
+  width: number;
+  /** Silhouette area, CSS px², and the share of it outside the hitbox circle. */
+  area: number;
+  outsideHitboxPct: number;
+}
+async function extent(page: Page, o: SetOptions, t: number): Promise<Extent> {
+  const [rx, ry] = rootPx(0);
+  const b = boxAt([rx, ry], 160, 170);
+  const raw = cropRaw(await capture(page, { ...common(), ...o, bg: 'key', laneY: 0 }, t), b);
+  const w = b.w * DPR;
+  let top = Infinity;
+  let bottom = -Infinity;
+  let left = Infinity;
+  let right = -Infinity;
+  let area = 0;
+  let outside = 0;
+  for (let i = 0; i < w * b.h * DPR; i++) {
+    if (Math.hypot(raw[i * 3] - KEY[0], raw[i * 3 + 1] - KEY[1], raw[i * 3 + 2] - KEY[2]) <= 90) continue;
+    const x = b.x + (i % w) / DPR;
+    const y = b.y + Math.floor(i / w) / DPR;
+    top = Math.min(top, y);
+    bottom = Math.max(bottom, y);
+    left = Math.min(left, x);
+    right = Math.max(right, x);
+    area++;
+    if (Math.hypot(x - rx, y - ry) > GAME.birdRadius * LANE_PX) outside++;
+  }
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  return { above: r1(ry - top), below: r1(bottom - ry), width: r1(right - left), area: Math.round(area / (DPR * DPR)), outsideHitboxPct: r1((outside / Math.max(1, area)) * 100) };
+}
+
 // --- sheets --------------------------------------------------------------------------------------------
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 function grid(title: string, cols: string[], rows: { label: string; cells: Cell[] }[]): string {
@@ -330,6 +365,22 @@ async function testSize(browser: Browser, page: Page): Promise<void> {
     screens.push({ label: `${sc}`, png: cropPng(f, { x: 0, y: 0, w: W, h: H }), w: W, h: H });
   }
   body += grid('The whole screen (phone size), gliding at the middle of the lane', SCALES.map((s) => `birdScale ${s}`), [{ label: '', cells: screens }]);
+  const sizes: Record<string, Record<string, Extent>> = {};
+  for (const sc of SCALES) {
+    sizes[sc] = {};
+    for (const s of KEY_POSES) sizes[sc][s.label] = await extent(page, { pose: s.pose, birdScale: sc }, s.t);
+  }
+  writeFileSync(
+    resolve(DIR, 'test2_size.json'),
+    `${JSON.stringify(
+      {
+        note: `CSS px on a 390 x 844 phone, measured from the hitbox centre. Hitbox radius ${(GAME.birdRadius * LANE_PX).toFixed(1)} px; the narrowest normal gap is ${(GAME.gapMin * LANE_PX).toFixed(1)} px, so ${((GAME.gapMin / 2) * LANE_PX).toFixed(1)} px above and below a bird centred in it.`,
+        birdScale: sizes,
+      },
+      null,
+      2,
+    )}\n`,
+  );
   for (const p of PLACES) {
     const rows: { label: string; cells: Cell[] }[] = [];
     for (const sc of SCALES) {
@@ -390,6 +441,15 @@ async function testTurn(browser: Browser, page: Page, wide: Page): Promise<void>
     { title: 'Larger (2.5 times phone size, the same frames), to read the shapes', on: wide, screenW: WIDE, zoom: (2.5 * UNIT_PX) / wideUnit, cw: 240, ch: 215 },
   ];
   let body = '';
+  const turns: Record<string, Record<string, Extent>> = {};
+  for (const turn of TURNS) {
+    turns[turn] = {};
+    for (const s of [{ label: 'idle', pose: 'idle' as Pose, t: 0.5 }, ...TURN_SHOTS]) turns[turn][s.label] = await extent(page, { pose: s.pose, turn }, s.t);
+  }
+  writeFileSync(
+    resolve(DIR, 'test3_turn.json'),
+    `${JSON.stringify({ note: 'CSS px on a 390 x 844 phone at birdScale 1, measured from the hitbox centre; area in px².', turn: turns }, null, 2)}\n`,
+  );
   for (const sec of sections) {
     const rows: { label: string; cells: Cell[] }[] = [];
     for (const turn of TURNS) {

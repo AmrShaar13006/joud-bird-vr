@@ -1,0 +1,116 @@
+{
+  "note": "CSS px on a 390 x 844 phone, measured from the hitbox centre. Hitbox radius 15.6 px; the narrowest normal gap is 85.8 px, so 42.9 px above and below a bird centred in it.",
+  "birdScale": {
+    "1": {
+      "idle": {
+        "above": 26.1,
+        "below": 18.9,
+        "width": 33,
+        "area": 1005,
+        "outsideHitboxPct": 26.6
+      },
+      "flap, raised": {
+        "above": 40.1,
+        "below": 17.4,
+        "width": 44.5,
+        "area": 1231,
+        "outsideHitboxPct": 41.3
+      },
+      "flap, downstroke": {
+        "above": 26.6,
+        "below": 16.9,
+        "width": 54.5,
+        "area": 1049,
+        "outsideHitboxPct": 32
+      },
+      "glide": {
+        "above": 25.6,
+        "below": 17.4,
+        "width": 54,
+        "area": 1057,
+        "outsideHitboxPct": 31.7
+      },
+      "fall": {
+        "above": 29.6,
+        "below": 17.4,
+        "width": 46.5,
+        "area": 1140,
+        "outsideHitboxPct": 37.5
+      }
+    },
+    "1.15": {
+      "idle": {
+        "above": 29.6,
+        "below": 21.9,
+        "width": 38.5,
+        "area": 1324,
+        "outsideHitboxPct": 42.3
+      },
+      "flap, raised": {
+        "above": 46.1,
+        "below": 20.4,
+        "width": 50.5,
+        "area": 1624,
+        "outsideHitboxPct": 53
+      },
+      "flap, downstroke": {
+        "above": 30.6,
+        "below": 19.4,
+        "width": 62.5,
+        "area": 1389,
+        "outsideHitboxPct": 45.1
+      },
+      "glide": {
+        "above": 29.6,
+        "below": 19.9,
+        "width": 62,
+        "area": 1398,
+        "outsideHitboxPct": 45.4
+      },
+      "fall": {
+        "above": 33.6,
+        "below": 19.9,
+        "width": 53.5,
+        "area": 1504,
+        "outsideHitboxPct": 49.2
+      }
+    },
+    "1.3": {
+      "idle": {
+        "above": 33.6,
+        "below": 24.9,
+        "width": 43.5,
+        "area": 1692,
+        "outsideHitboxPct": 54.9
+      },
+      "flap, raised": {
+        "above": 52.1,
+        "below": 22.9,
+        "width": 57.5,
+        "area": 2075,
+        "outsideHitboxPct": 63.2
+      },
+      "flap, downstroke": {
+        "above": 34.6,
+        "below": 21.9,
+        "width": 71,
+        "area": 1775,
+        "outsideHitboxPct": 57
+      },
+      "glide": {
+        "above": 33.6,
+        "below": 22.4,
+        "width": 70,
+        "area": 1782,
+        "outsideHitboxPct": 57.1
+      },
+      "fall": {
+        "above": 38.1,
+        "below": 22.9,
+        "width": 61,
+        "area": 1922,
+        "outsideHitboxPct": 60.3
+      }
+    }
+  }
+}

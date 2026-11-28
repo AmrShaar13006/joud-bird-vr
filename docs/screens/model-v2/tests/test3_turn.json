@@ -1,0 +1,200 @@
+{
+  "note": "CSS px on a 390 x 844 phone at birdScale 1, measured from the hitbox centre; area in px².",
+  "turn": {
+    "-55": {
+      "idle": {
+        "above": 26.1,
+        "below": 18.9,
+        "width": 33,
+        "area": 1005,
+        "outsideHitboxPct": 26.6
+      },
+      "glide": {
+        "above": 25.6,
+        "below": 17.4,
+        "width": 54,
+        "area": 1057,
+        "outsideHitboxPct": 31.7
+      },
+      "flap 0": {
+        "above": 38.6,
+        "below": 17.4,
+        "width": 46,
+        "area": 1211,
+        "outsideHitboxPct": 40.3
+      },
+      "flap 2": {
+        "above": 40.1,
+        "below": 17.4,
+        "width": 44.5,
+        "area": 1231,
+        "outsideHitboxPct": 41.3
+      },
+      "flap 3": {
+        "above": 39.1,
+        "below": 16.9,
+        "width": 48.5,
+        "area": 1242,
+        "outsideHitboxPct": 43.2
+      },
+      "flap 4": {
+        "above": 31.1,
+        "below": 16.4,
+        "width": 55,
+        "area": 1153,
+        "outsideHitboxPct": 39.5
+      },
+      "flap 5": {
+        "above": 26.6,
+        "below": 16.9,
+        "width": 54.5,
+        "area": 1049,
+        "outsideHitboxPct": 32
+      },
+      "flap 6": {
+        "above": 26.1,
+        "below": 17.4,
+        "width": 48,
+        "area": 1050,
+        "outsideHitboxPct": 29.5
+      },
+      "flap 8": {
+        "above": 25.1,
+        "below": 17.4,
+        "width": 37,
+        "area": 1006,
+        "outsideHitboxPct": 26.3
+      }
+    },
+    "-45": {
+      "idle": {
+        "above": 26.1,
+        "below": 18.9,
+        "width": 34,
+        "area": 1016,
+        "outsideHitboxPct": 26.8
+      },
+      "glide": {
+        "above": 25.6,
+        "below": 16.9,
+        "width": 62,
+        "area": 1096,
+        "outsideHitboxPct": 32.9
+      },
+      "flap 0": {
+        "above": 37.6,
+        "below": 16.9,
+        "width": 53,
+        "area": 1226,
+        "outsideHitboxPct": 40.2
+      },
+      "flap 2": {
+        "above": 39.1,
+        "below": 16.9,
+        "width": 50,
+        "area": 1245,
+        "outsideHitboxPct": 41.1
+      },
+      "flap 3": {
+        "above": 38.6,
+        "below": 16.4,
+        "width": 55,
+        "area": 1255,
+        "outsideHitboxPct": 42.6
+      },
+      "flap 4": {
+        "above": 30.1,
+        "below": 15.9,
+        "width": 62.5,
+        "area": 1182,
+        "outsideHitboxPct": 40
+      },
+      "flap 5": {
+        "above": 26.6,
+        "below": 16.4,
+        "width": 62,
+        "area": 1119,
+        "outsideHitboxPct": 35.3
+      },
+      "flap 6": {
+        "above": 26.1,
+        "below": 16.9,
+        "width": 54.5,
+        "area": 1112,
+        "outsideHitboxPct": 33
+      },
+      "flap 8": {
+        "above": 25.1,
+        "below": 16.9,
+        "width": 40,
+        "area": 1066,
+        "outsideHitboxPct": 30
+      }
+    },
+    "-40": {
+      "idle": {
+        "above": 26.1,
+        "below": 18.9,
+        "width": 34.5,
+        "area": 1024,
+        "outsideHitboxPct": 27.3
+      },
+      "glide": {
+        "above": 25.6,
+        "below": 16.9,
+        "width": 65,
+        "area": 1110,
+        "outsideHitboxPct": 33.6
+      },
+      "flap 0": {
+        "above": 37.1,
+        "below": 16.9,
+        "width": 55,
+        "area": 1226,
+        "outsideHitboxPct": 39.9
+      },
+      "flap 2": {
+        "above": 38.6,
+        "below": 16.9,
+        "width": 52.5,
+        "area": 1241,
+        "outsideHitboxPct": 40.6
+      },
+      "flap 3": {
+        "above": 38.1,
+        "below": 16.4,
+        "width": 57,
+        "area": 1248,
+        "outsideHitboxPct": 42
+      },
+      "flap 4": {
+        "above": 29.6,
+        "below": 15.9,
+        "width": 65.5,
+        "area": 1196,
+        "outsideHitboxPct": 40.2
+      },
+      "flap 5": {
+        "above": 26.6,
+        "below": 15.9,
+        "width": 66,
+        "area": 1143,
+        "outsideHitboxPct": 36.7
+      },
+      "flap 6": {
+        "above": 26.1,
+        "below": 16.9,
+        "width": 57,
+        "area": 1134,
+        "outsideHitboxPct": 34.3
+      },
+      "flap 8": {
+        "above": 25.1,
+        "below": 16.9,
+        "width": 42.5,
+        "area": 1099,
+        "outsideHitboxPct": 32
+      }
+    }
+  }
+}
