@@ -29,9 +29,8 @@ import type { Game } from '../core/game';
 import type { ObstacleKind, PointsTable } from '../core/ruleset';
 import { Bird } from '../scene/bird';
 import { BRAND } from '../scene/scenery';
-import { FAR_PARALLAX, FAR_TILE_M, FAR_METRE, layerOffset, NEAR_METRE, NEAR_PARALLAX, NEAR_TILE_M } from './backdrop';
 import { ScoreBurst } from '../scene/burst';
-import { addGameBackdrop, gameBackground, laneFrame } from './game-backdrop';
+import { addGameBackdrop, type GameBackdrop, gameBackground, laneFrame, scrollBackdrop } from './game-backdrop';
 import { boxTile, type Column, drawBoxAtlas, tileRect, wordColumn } from './box-art';
 import { badgeKey, badgeRect, type Cue, cueFor, drawBadgeAtlas, SPARKLE_TILE } from './cues';
 
@@ -148,9 +147,7 @@ export class MobileView {
   private readonly tmpScale = new Vector3();
   private cfg: Readonly<Config>;
   private fx: boolean;
-  private readonly strip: Mesh;
-  private readonly facade: Mesh;
-  private readonly plaza: Mesh;
+  private readonly backdrop: GameBackdrop;
   /** Backdrop scroll distance (lane units); render-only. */
   private scroll = 0;
   private glbWanted: boolean;
@@ -169,10 +166,7 @@ export class MobileView {
     this.birdScale = opts.birdScale ?? 1;
     const s = this.scene;
     s.background = gameBackground();
-    const backdrop = addGameBackdrop(s, cfg.laneH, opts.scenery);
-    this.facade = backdrop.facade;
-    this.plaza = backdrop.plaza;
-    this.strip = backdrop.strip;
+    this.backdrop = addGameBackdrop(s, cfg.laneH, opts.scenery);
 
     // Lights for the Lambert bird.
     s.add(new HemisphereLight('#ffffff', '#88aa77', 2.2));
@@ -254,8 +248,8 @@ export class MobileView {
   }
 
   setScenery(on: boolean): void {
-    this.strip.visible = on;
-    this.plaza.visible = on;
+    this.backdrop.strip.visible = on;
+    this.backdrop.plaza.visible = on;
   }
 
   /** joud.glb (if loaded) or the code-built placeholder. Glasses and legs stay. */
@@ -384,8 +378,7 @@ export class MobileView {
       const v = game.state === 'playing' ? game.speed : idle ? 0.06 : 0;
       this.scroll += v * dt;
     }
-    this.facade.position.x = layerOffset(this.scroll, FAR_PARALLAX, FAR_TILE_M * FAR_METRE);
-    this.plaza.position.x = layerOffset(this.scroll, NEAR_PARALLAX, NEAR_TILE_M * NEAR_METRE);
+    scrollBackdrop(this.backdrop, this.scroll);
 
     // Obstacles.
     this.boxCount = 0;

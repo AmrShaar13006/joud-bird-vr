@@ -40,17 +40,51 @@ const PALMS_M = [10.46, 22.77, 36.93, 49.37];
  */
 const HAZE = new Color(BRAND.cream).lerp(new Color('#ffffff'), 0.5);
 
+const WHITE = new Color('#ffffff');
+
+/**
+ * The game's sky (game-backdrop.ts draws it behind the plaza as a vertical gradient): `bottom`
+ * on the lane's floor, `top` at its roof.
+ */
+export function skyColors(): { top: Color; bottom: Color } {
+  return {
+    top: new Color(BRAND.sky).lerp(WHITE, 0.45),
+    bottom: new Color(BRAND.butter).lerp(WHITE, 0.25),
+  };
+}
+
+/**
+ * How far each layer is pushed back into the sky, so that Joud's cream edges stay clear in front
+ * of the cream façade and the white booths: each colour is blended `sky` of the way towards the
+ * sky's blue (its top colour), then scaled to `light` of its brightness (linear RGB, so the hue
+ * stays). Not towards the sky at the layer's own height: halfway up, the gradient is a grey cream
+ * that is itself close to Joud's edges (model-tests.ts, test 4).
+ */
+export interface Recede {
+  sky: number;
+  light: number;
+}
+export const FAR_RECEDE: Recede = { sky: 0.55, light: 0.95 };
+export const NEAR_RECEDE: Recede = { sky: 0.4, light: 1 };
+
 /** Flat coloured triangles in the XY plane, merged into one geometry. */
 class Flat {
   private readonly pos: number[] = [];
   private readonly col: number[] = [];
   private z = 0;
+  private readonly blue = skyColors().top;
 
-  constructor(private readonly fade: number) {}
+  constructor(
+    private readonly fade: number,
+    private readonly recede: Recede,
+  ) {}
 
-  /** Brand colour pushed back towards the sky. */
+  /** Brand colour faded towards the haze, then pushed back into the sky (see Recede). */
   color(hex: string, extra = 0): Color {
-    return new Color(hex).lerp(HAZE, Math.min(1, this.fade + extra));
+    return new Color(hex)
+      .lerp(HAZE, Math.min(1, this.fade + extra))
+      .lerp(this.blue, this.recede.sky)
+      .multiplyScalar(this.recede.light);
   }
 
   /** Later shapes are drawn slightly in front of earlier ones. */
@@ -232,8 +266,7 @@ function nearTile(b: Flat, x0: number): void {
 }
 
 /** Two copies of a tile side by side, from −tile to +tile metres. */
-function twoTiles(fade: number, tileM: number, draw: (b: Flat, x0: number) => void): BufferGeometry {
-  const b = new Flat(fade);
+function twoTiles(b: Flat, tileM: number, draw: (b: Flat, x0: number) => void): BufferGeometry {
   draw(b, -tileM);
   draw(b, 0);
   return b.build();
@@ -241,12 +274,12 @@ function twoTiles(fade: number, tileM: number, draw: (b: Flat, x0: number) => vo
 
 /** Far layer geometry in metres (y = 0 on the lane floor). */
 export function buildFacade(): BufferGeometry {
-  return twoTiles(0.45, FAR_TILE_M, facadeTile);
+  return twoTiles(new Flat(0.45, FAR_RECEDE), FAR_TILE_M, facadeTile);
 }
 
 /** Near layer geometry in metres (y = 0 on the lane floor). */
 export function buildPlazaRow(): BufferGeometry {
-  return twoTiles(0.22, NEAR_TILE_M, nearTile);
+  return twoTiles(new Flat(0.22, NEAR_RECEDE), NEAR_TILE_M, nearTile);
 }
 
 /**

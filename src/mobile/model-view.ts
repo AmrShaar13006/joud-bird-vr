@@ -77,7 +77,7 @@ import refPoster from '../../docs/references/joud_ref_flying_poster_crop.png?url
 import refSide from '../../docs/references/joud_ref_slim_side.png?url';
 import { type Body, flap as coreFlap, integrate } from '../core/physics';
 import { MOBILE1 } from '../core/ruleset';
-import type { addGameBackdrop, gameBackground, laneFrame, parseBirdScale } from './game-backdrop';
+import type { addGameBackdrop, gameBackground, laneFrame, parseBirdScale, scrollBackdrop } from './game-backdrop';
 
 /** The game's backdrop code (game-backdrop.ts), handed over by model-gate.ts: this chunk cannot import it. */
 export interface GameBackdropCode {
@@ -85,6 +85,7 @@ export interface GameBackdropCode {
   gameBackground: typeof gameBackground;
   laneFrame: typeof laneFrame;
   parseBirdScale: typeof parseBirdScale;
+  scrollBackdrop: typeof scrollBackdrop;
 }
 
 export const STILLS = ['folded', 'spread'] as const;
@@ -116,7 +117,7 @@ export interface ModelInfo {
   /** FACING_TURN: the game's turn of the bird about Y, degrees. */
   facingTurn: number;
   /** The game view's test settings now. */
-  game: { bg: Background; birdScale: number; turn: number; laneY: number };
+  game: { bg: Background; birdScale: number; turn: number; laneY: number; scroll: number };
 }
 
 /** What is playing now (the still poses report clip ''). */
@@ -163,6 +164,8 @@ export interface ModelApi {
     turn?: number;
     /** Game view, stills and single clips: height in the lane, lane units. */
     laneY?: number;
+    /** Game view: the backdrop scrolled as after this many lane units of play (0: as with effects off). */
+    scroll?: number;
     status?: boolean;
   }): void;
   info(): ModelInfo;
@@ -203,6 +206,7 @@ const RULER_STEP = 3; // model units between the game view's guide lines
 const LANE_Y_MAX = GAME.laneH / 2 - GAME.birdRadius; // lane units: the highest and lowest the hitbox reaches
 const clampTurn = (v: number): number => (Number.isFinite(v) ? Math.max(-90, Math.min(0, v)) : FACING_TURN);
 const clampLaneY = (v: number): number => (Number.isFinite(v) ? Math.max(-LANE_Y_MAX, Math.min(LANE_Y_MAX, v)) : 0);
+const clampScroll = (v: number): number => (Number.isFinite(v) ? Math.max(0, Math.min(1e4, v)) : 0);
 
 // --- how the clips follow each other (Amr, 27 Nov 2026) -----------------------------------------------
 const FADE = 0.08; // seconds: every cross-fade ...
@@ -319,6 +323,7 @@ export async function startModelView(lane: GameBackdropCode): Promise<void> {
   let birdScale = lane.parseBirdScale(params.get('birdScale'));
   let turn = clampTurn(Number(params.get('turn') ?? FACING_TURN));
   let laneY = clampLaneY(Number(params.get('laneY') ?? 0));
+  let scroll = clampScroll(Number(params.get('scroll') ?? 0));
   let manual = false; // recordings: time moves only through api.step() and api.seek()
   let zoom = 1; // close-ups for screenshots: the camera's distance is divided by this
   let aim: [number, number, number] | null = null; // look at this point instead of the view's own
@@ -370,7 +375,7 @@ export async function startModelView(lane: GameBackdropCode): Promise<void> {
     ready: false,
     error: '',
     set: () => {},
-    info: () => ({ model: modelName, pose, view, look, ref: showRef, calls: 0, triangles: 0, fps: 0, bytes, joints: [], sockets: [], clips: [], presentTilt: PRESENT_TILT, facingTurn: FACING_TURN, game: { bg, birdScale, turn, laneY } }),
+    info: () => ({ model: modelName, pose, view, look, ref: showRef, calls: 0, triangles: 0, fps: 0, bytes, joints: [], sockets: [], clips: [], presentTilt: PRESENT_TILT, facingTurn: FACING_TURN, game: { bg, birdScale, turn, laneY, scroll } }),
     anim: () => idleState,
     tap: () => {},
     step: () => {},
@@ -463,7 +468,8 @@ export async function startModelView(lane: GameBackdropCode): Promise<void> {
   // &bg=game: the game's own backdrop (game-backdrop.ts, in lane units), scaled to model units and
   // placed so that the bird, at model x 0, is at the game's birdX. The lane's centre is y 0 in both.
   const backdrop = new Group();
-  lane.addGameBackdrop(backdrop, GAME.laneH, true);
+  const backdropParts = lane.addGameBackdrop(backdrop, GAME.laneH, true);
+  lane.scrollBackdrop(backdropParts, scroll);
   backdrop.scale.setScalar(1 / MODEL_UNIT);
   backdrop.position.x = -GAME.birdX / MODEL_UNIT;
   scene.add(backdrop);
@@ -921,6 +927,10 @@ export async function startModelView(lane: GameBackdropCode): Promise<void> {
     if (o.birdScale !== undefined) birdScale = lane.parseBirdScale(String(o.birdScale));
     if (o.turn !== undefined) turn = clampTurn(o.turn);
     if (o.laneY !== undefined) laneY = clampLaneY(o.laneY);
+    if (o.scroll !== undefined) {
+      scroll = clampScroll(o.scroll);
+      lane.scrollBackdrop(backdropParts, scroll);
+    }
     if (o.pose) choose(o.pose);
     refresh();
     if (manual) {
@@ -943,7 +953,7 @@ export async function startModelView(lane: GameBackdropCode): Promise<void> {
     clips: clipInfo,
     presentTilt: PRESENT_TILT,
     facingTurn: FACING_TURN,
-    game: { bg, birdScale, turn, laneY },
+    game: { bg, birdScale, turn, laneY, scroll },
   });
   api.anim = animState;
   api.tap = tap;

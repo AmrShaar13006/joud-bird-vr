@@ -8,7 +8,18 @@
 
 import { Color, Float32BufferAttribute, Mesh, MeshBasicMaterial, type Object3D, PlaneGeometry } from 'three';
 import { BRAND, buildFlowerStrip } from '../scene/scenery';
-import { buildFacade, buildPlazaRow, FAR_METRE, NEAR_METRE } from './backdrop';
+import {
+  buildFacade,
+  buildPlazaRow,
+  FAR_METRE,
+  FAR_PARALLAX,
+  FAR_TILE_M,
+  layerOffset,
+  NEAR_METRE,
+  NEAR_PARALLAX,
+  NEAR_TILE_M,
+  skyColors,
+} from './backdrop';
 
 /** Ground and flowers visible under the lane. */
 const GROUND_MARGIN = 0.22;
@@ -43,9 +54,8 @@ export interface GameBackdrop {
  * with the model viewer (`?debug=1&rig=1&model=v2&bg=game`), which draws Joud in front of it.
  */
 export function addGameBackdrop(parent: Object3D, laneH: number, scenery: boolean): GameBackdrop {
-  const skyTop = new Color(BRAND.sky).lerp(new Color('#ffffff'), 0.45);
-  const skyBottom = new Color(BRAND.butter).lerp(new Color('#ffffff'), 0.25);
-  const sky = gradientPlane(8, laneH + 0.02, skyTop, skyBottom);
+  const { top, bottom } = skyColors();
+  const sky = gradientPlane(8, laneH + 0.02, top, bottom);
   sky.position.z = -2;
   parent.add(sky);
 
@@ -71,7 +81,18 @@ export function addGameBackdrop(parent: Object3D, laneH: number, scenery: boolea
   strip.position.set(0, -laneH / 2 - GROUND_MARGIN * 0.75, -1);
   strip.visible = scenery;
   parent.add(strip);
-  return { facade, plaza, strip };
+  const parts = { facade, plaza, strip };
+  scrollBackdrop(parts, 0);
+  return parts;
+}
+
+/**
+ * The façade and the booths for a scroll distance (lane units the obstacles have moved): each
+ * layer moves at its own parallax and wraps every tile. 0 is where they stay with effects off.
+ */
+export function scrollBackdrop(b: GameBackdrop, scroll: number): void {
+  b.facade.position.x = layerOffset(scroll, FAR_PARALLAX, FAR_TILE_M * FAR_METRE);
+  b.plaza.position.x = layerOffset(scroll, NEAR_PARALLAX, NEAR_TILE_M * NEAR_METRE);
 }
 
 /**
