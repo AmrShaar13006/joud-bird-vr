@@ -61,10 +61,14 @@ const strays = []; // sessions to delete if an open endpoint turns out to be on
 async function main() {
   // A. The open Auth endpoints are off.
   const open = await call('POST', '/auth/v1/signup', { body: { email: PROBE, password: passcode() } });
-  check('open email sign-up is refused', errOf(open) === 'signup_disabled', brief(open));
+  // With sign-ups off, Auth answers signup_disabled before it looks at the address. Any other
+  // answer means it accepted the sign-up (email_address_invalid: it got as far as the
+  // confirmation email, which the mailer refuses for example.com).
+  check('open email sign-up is refused', errOf(open) === 'signup_disabled', { ...brief(open), hint: errOf(open) === 'signup_disabled' ? undefined : 'open sign-ups are ON' });
   if (open.body?.access_token) strays.push(open.body.access_token);
   const anon = await call('POST', '/auth/v1/signup', { body: { data: {} } });
-  check('anonymous sign-in is refused', ['anonymous_provider_disabled', 'signup_disabled'].includes(errOf(anon)), brief(anon));
+  const anonOff = ['anonymous_provider_disabled', 'signup_disabled'].includes(errOf(anon));
+  check('anonymous sign-in is refused', anonOff, { ...brief(anon), hint: anonOff ? undefined : 'anonymous sign-ins are ON' });
   if (anon.body?.access_token) strays.push(anon.body.access_token);
 
   // B. The sign-up function: the only way in.
