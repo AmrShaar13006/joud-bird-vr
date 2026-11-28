@@ -111,19 +111,15 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
 ### Sound (`src/mobile/sound/`; VR keeps `src/scene/audio.ts`)
 
 - Synthesised with Web Audio: no audio files, no dependencies, no instruments. The sound world
-  is a garden: Joud's chirps, a soft tonal flap, glints, drums, and the score chime.
+  is a garden: Joud's chirps, the first version's flap, glints, drums, and the score chime.
 - `director.ts` maps a frame's `game.events` (plus the obstacle points gained and the obstacles
-  passed) to sounds and vibration: flap a soft rising "bwip" in pure tones, no noise (±3% pitch,
-  and quick taps lift it up to 8%; the voice is a setting for future flap-sound items: puff,
-  peep, flutter and the first version's blip), +1 the chime, which climbs
+  passed) to sounds and vibration: flap the first version's soft rising blip, exactly as the
+  live game plays it (Amr chose it over every newer flap; the voice is a setting, `classic`, so
+  flap-sound items can add more), +1 the chime, which climbs
   a pentatonic scale with each point of a run as in the first version (Joud approved the climb),
   +2 the chime with glints, +3 with Joud's "twee-tweet", +5 with a trill, flower a bud opening,
   hit a soft thump with a startled chirp, new best a run of chirps, a trill and a doum. The core
   never knows sound exists.
-- Flap trials (28 Nov, until Amr picks one): `flap-lab.ts` holds four flaps that react to the
-  flight (Joud's height, passed in by `main.ts`, and the time since the last tap): dew drop,
-  Joud's chatter, bubble pop, spring hop. `?debug=1&sounds=1&flap=<name>` plays one in the game,
-  with no panel. Lazy, debug only; the winner moves into `voices.ts` and the file goes.
 - Vibration (Android only) on hit, new best and +5. Never on flap.
 - Two switches, «المؤثرات» (effects and vibration) and «الإيقاع» (percussion layer), in
   `localStorage`. An old `muted = 1` turns both off; `?mute=1` starts both off.
@@ -136,8 +132,8 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
   Chromium binary).
 - The percussion layer (`percussion.ts`: a breeze, then frame drum and far-off birds from score
   10, maqsum darbuka from 25, 96 BPM) is only in the debug sampler for now: `?debug=1&sounds=1` shows a button per sound.
-- `check:mobile` keeps the eager sound code at most 4 kB gzip and the percussion layer, the
-  sampler and the flap trials out of the first load.
+- `check:mobile` keeps the eager sound code at most 4 kB gzip and the percussion layer and the
+  sampler out of the first load.
 
 ### Practice
 - Same ruleset, a fresh random seed every round.

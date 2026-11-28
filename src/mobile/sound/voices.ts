@@ -1,5 +1,5 @@
 // Every sound of the phone game, synthesised with Web Audio: no files, no instruments. The
-// sound world is a garden: Joud's chirps, a soft tonal flap, sparkles and drums, and the score chime
+// sound world is a garden: Joud's chirps, the first version's flap, sparkles and drums, and the score chime
 // that climbs a pentatonic scale with each point of a run (as in the first version; Joud
 // approved the climb on 28 Nov 2026). Each voice draws into a Kit, so the
 // same code plays live in the game and renders offline to .wav (scripts/sound/render-samples.mjs).
@@ -13,13 +13,12 @@ export interface Kit {
 
 /**
  * Gain of each voice, tuned with `npm run sound:samples` so the effects land near the same
- * loudness in the game. The flap sits lower (it plays on every tap) and the button tick lower
- * still. Change loudness here only.
+ * loudness in the game. The flap keeps the first version's balance with the chime (its peak a
+ * little above the chime's); the button tick sits lower. Change loudness here only.
  */
 export const LOUD = {
-  flap: 0.26,
+  flap: 0.33,
   ruffle: 0.5,
-  blip: 0.29,
   chime: 0.3,
   chirp: 0.16,
   glint: 0.1,
@@ -31,8 +30,8 @@ export const LOUD = {
   breeze: 0.05,
 } as const;
 
-/** Flap voices: a setting, so flap-sound items can add more later. */
-export const FLAP_VOICES = ['puff', 'peep', 'flutter', 'blip'] as const;
+/** Flap voices: a setting, so flap-sound items can add more later. 'classic' is the first version's. */
+export const FLAP_VOICES = ['classic'] as const;
 export type FlapVoice = (typeof FLAP_VOICES)[number];
 
 /** The chime's first pitch (as the first version). */
@@ -173,27 +172,12 @@ export function distantBird(k: Kit, t: number, r: number): void {
 // ---------- effects ----------
 
 /**
- * The flap: pure tones only (no noise), short and soft, gliding up like the lift of a wing beat.
- * `rate`: pitch factor (the ±3% variation, raised a little by quick taps; see SoundEngine).
+ * The flap. 'classic' is the first version's soft rising blip, exactly as the live game plays it
+ * (src/scene/audio.ts): a triangle gliding 420 → 720 Hz in 80 ms, with no pitch variation.
+ * Amr chose it on 28 Nov 2026 over every newer flap.
  */
-export function flap(k: Kit, t: number, voice: FlapVoice, rate = 1): void {
-  const L = LOUD.flap;
-  switch (voice) {
-    case 'puff': // a round little "bwip" rising, like a bubble lifting
-      tone(k, t, 'sine', 340 * rate, 580 * rate, 0.055, L, 0.008, 0.09);
-      tone(k, t, 'sine', 680 * rate, 1160 * rate, 0.055, L * 0.15, 0.005, 0.06);
-      return;
-    case 'peep': // Joud's tiny peep on each beat
-      chirp(k, t, 1900 * rate, 2500 * rate, 2250 * rate, 0.045, 2, 0.02);
-      tone(k, t, 'sine', 420 * rate, 560 * rate, 0.04, L * 0.45, 0.004, 0.05);
-      return;
-    case 'flutter': // two quick soft flits: "flit-flit"
-      tone(k, t, 'sine', 520 * rate, 700 * rate, 0.03, L * 1.25, 0.004, 0.05);
-      tone(k, t + 0.045, 'sine', 600 * rate, 820 * rate, 0.03, L * 0.95, 0.004, 0.06);
-      return;
-    case 'blip': // the first version's flap
-      tone(k, t, 'triangle', 420 * rate, 720 * rate, 0.08, LOUD.blip, 0.004, 0.12);
-  }
+export function flap(k: Kit, t: number, voice: FlapVoice = 'classic'): void {
+  if (voice === 'classic') tone(k, t, 'triangle', 420, 720, 0.08, LOUD.flap, 0.004, 0.12);
 }
 
 /** The score chime: a bright bell-like tone with its octave. `step` from chimeStep(). */

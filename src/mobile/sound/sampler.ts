@@ -1,13 +1,9 @@
 // ?debug=1&sounds=1: a panel with a button per sound, plus the 20-second percussion preview.
 // Loaded lazily and only behind the debug flag; never part of the normal page.
-// &flap=drop|chatter|pop|spring plays that trial flap (flap-lab.ts) in the game itself, with
-// no panel in the way.
 
 import type { Cue } from './director';
 import type { SoundEngine } from './engine';
-import { LAB_VOICES } from './flap-lab';
 import { schedulePreview } from './percussion';
-import { FLAP_VOICES } from './voices';
 
 const CUES: [Cue, string][] = [
   ['flap', 'flap'],
@@ -20,17 +16,7 @@ const CUES: [Cue, string][] = [
   ['best', 'new best'],
 ];
 
-const TRIALS = Object.keys(LAB_VOICES);
-
 export function mountSampler(sound: SoundEngine): void {
-  // A trial flap voice, or '' for the built-in one.
-  let trial = new URLSearchParams(window.location.search).get('flap') ?? '';
-  if (!LAB_VOICES[trial]) trial = '';
-  const useTrial = (): void => {
-    sound.flapPlayer = trial ? LAB_VOICES[trial] : null;
-  };
-  useTrial();
-  if (trial) return;
   const box = document.createElement('div');
   box.id = 'sound-sampler';
   box.dir = 'ltr';
@@ -53,19 +39,6 @@ export function mountSampler(sound: SoundEngine): void {
   let run = 0;
   for (const [cue, label] of CUES) add(label, () => sound.play(cue, cue.startsWith('point') ? ++run : run));
   add('reset run', () => (run = 0));
-  const voiceLabel = (): string => `flap voice: ${trial || sound.flapVoice}`;
-  add(voiceLabel(), () => {
-    // Built-in voices first, then the trials.
-    const all = [...FLAP_VOICES, ...TRIALS];
-    const next = all[(all.indexOf(trial || sound.flapVoice) + 1) % all.length];
-    if (TRIALS.includes(next)) trial = next;
-    else {
-      trial = '';
-      sound.flapVoice = next as (typeof FLAP_VOICES)[number];
-    }
-    useTrial();
-    box.querySelectorAll('button')[CUES.length + 1].textContent = voiceLabel();
-  });
   add('percussion 20 s', () => {
     const k = sound.percussionKit();
     if (k) schedulePreview(k, k.ctx.currentTime + 0.05);

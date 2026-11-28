@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { GameEvent } from '../../core/game';
-import { BUZZ, type FramePlan, flapLift, jitter, planFrame, scoreCue } from './director';
-import { flapWeight } from './flap-lab';
+import { BUZZ, type FramePlan, jitter, planFrame, scoreCue } from './director';
 import { BAR, BPM, layerFor, MAQSUM, PULSE } from './percussion';
-import { CHIME_STEPS, chimeStep } from './voices';
+import { CHIME_STEPS, chimeStep, flap, type Kit, LOUD } from './voices';
 import { KEYS, type KeyStore, loadSoundSettings, saveSoundSetting } from './settings';
 
 const plan = (events: GameEvent[], delta = 0): FramePlan => planFrame(events, delta, { cues: [], buzz: null });
@@ -42,21 +41,6 @@ describe('sound director', () => {
     planFrame(['flap'], 0, out);
     expect(out.cues).toBe(cues);
     expect(out).toEqual({ cues: ['flap'], buzz: null });
-  });
-
-  it('lifts the flap 2% per quick tap, up to 8%, and resets after a pause', () => {
-    let lift = 0;
-    for (let i = 0; i < 6; i++) lift = flapLift(lift, 0.2);
-    expect(lift).toBeCloseTo(0.08);
-    expect(flapLift(lift, 0.5)).toBe(0);
-    expect(flapLift(0, -1)).toBe(0);
-  });
-
-  it('weighs a flap by the fall before it: light when quick, full after 0.8 s', () => {
-    expect(flapWeight(0.15)).toBe(0);
-    expect(flapWeight(0.5)).toBeCloseTo(0.5);
-    expect(flapWeight(2)).toBe(1);
-    expect(flapWeight(-1)).toBe(0.5);
   });
 
   it('varies pitch by at most 3%', () => {
@@ -108,5 +92,43 @@ describe('score chime', () => {
     expect(chimeStep(12)).toBe(1);
     expect(chimeStep(0)).toBe(1);
     expect(CHIME_STEPS).toEqual([0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24]);
+  });
+});
+
+describe('flap', () => {
+  // Records what a voice asks of Web Audio, so the flap can be compared with the live game's.
+  function recorder(): { kit: Kit; oscs: { type: string; freq: unknown[]; stop: number }[]; gains: unknown[][] } {
+    const oscs: { type: string; freq: unknown[]; stop: number }[] = [];
+    const gains: unknown[][] = [];
+    const param = (log: unknown[]) => ({
+      setValueAtTime: (v: number, t: number) => log.push(['set', v, t]),
+      exponentialRampToValueAtTime: (v: number, t: number) => log.push(['exp', v, t]),
+    });
+    const ctx = {
+      createOscillator: () => {
+        const o = { type: 'sine', freq: [] as unknown[], stop: -1 };
+        oscs.push(o);
+        return { set type(v: string) { o.type = v; }, frequency: param(o.freq), connect: (n: unknown) => n, start: () => {}, stop: (t: number) => (o.stop = t) };
+      },
+      createGain: () => {
+        const log: unknown[] = [];
+        gains.push(log);
+        return { gain: param(log), connect: (n: unknown) => n };
+      },
+    };
+    return { kit: { ctx, out: {}, noise: {} } as unknown as Kit, oscs, gains };
+  }
+
+  it("is the live game's flap: a triangle 420 → 720 Hz in 80 ms, 4 ms attack, 120 ms decay, no pitch variation", () => {
+    const r = recorder();
+    flap(r.kit, 0);
+    flap(r.kit, 0);
+    expect(r.oscs).toHaveLength(2);
+    for (const [i, o] of r.oscs.entries()) {
+      expect(o.type).toBe('triangle');
+      expect(o.freq).toEqual([['set', 420, 0], ['exp', 720, 0.08]]);
+      expect(o.stop).toBeCloseTo(0.144);
+      expect(r.gains[i]).toEqual([['set', 0.0001, 0], ['exp', LOUD.flap, 0.004], ['exp', 0.0001, 0.124]]);
+    }
   });
 });

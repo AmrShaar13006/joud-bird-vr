@@ -57,17 +57,6 @@ export function planFrame(events: readonly GameEvent[], pointsDelta: number, out
   return out;
 }
 
-/** Quick taps (under 0.35 s apart) lift the flap's pitch 2% each, up to 8%; a pause resets it. */
-export function flapLift(lift: number, sinceLast: number): number {
-  return sinceLast >= 0 && sinceLast < 0.35 ? Math.min(lift + 0.02, 0.08) : 0;
-}
-
-/** What a trial flap voice is told: Joud's height (-1 floor to 1 top) and seconds since the last flap (-1: first). */
-export interface FlapInfo {
-  alt: number;
-  since: number;
-}
-
 /** A pitch factor within ±3%; `r` is a random number in [0, 1). */
 export function jitter(r: number): number {
   return 0.97 + r * 0.06;

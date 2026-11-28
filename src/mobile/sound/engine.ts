@@ -3,7 +3,7 @@
 // Buses: effects and percussion → master gain → limiter → speakers.
 
 import type { GameEvent } from '../../core/game';
-import { type Cue, type FlapInfo, type FramePlan, flapLift, jitter, planFrame } from './director';
+import { type Cue, type FramePlan, jitter, planFrame } from './director';
 import { vibrate } from './haptics';
 import type { SoundSettings } from './settings';
 import * as V from './voices';
@@ -26,12 +26,12 @@ export function makeLimiter(ctx: BaseAudioContext): DynamicsCompressorNode {
 
 /**
  * Play one cue into a kit. Shared by the engine and the offline renders. `run`: points so far
- * this round (the chime climbs with it); `rate`: the ±3% pitch variation.
+ * this round (the chime climbs with it); `rate`: the ±3% pitch variation (not on the flap).
  */
 export function playCue(k: V.Kit, cue: Cue, t: number, flapVoice: V.FlapVoice, rate: number, run = 1): void {
   switch (cue) {
     case 'flap':
-      return V.flap(k, t, flapVoice, rate);
+      return V.flap(k, t, flapVoice);
     case 'point':
       return V.point(k, t, V.chimeStep(run));
     case 'point2':
@@ -57,14 +57,7 @@ export class SoundEngine {
   private kit: V.Kit | null = null;
   private readonly plan: FramePlan = { cues: [], buzz: null };
   private voiceEnds: number[] = [];
-  flapVoice: V.FlapVoice = 'puff';
-  /** Quick taps lift the flap's pitch a little (up to +8%); a pause resets it. */
-  private lift = 0;
-  private lastFlap = -1;
-  /** Joud's height in the lane, -1 (floor) to 1 (top), from the last frame. */
-  private alt = 0;
-  /** Debug only: a trial flap voice from flap-lab.ts (the sampler sets it). */
-  flapPlayer: ((k: V.Kit, t: number, rate: number, f: FlapInfo) => void) | null = null;
+  flapVoice: V.FlapVoice = 'classic';
 
   constructor(readonly settings: SoundSettings) {}
 
@@ -122,11 +115,9 @@ export class SoundEngine {
 
   /**
    * Sounds and vibration for one frame's game events. `pointsDelta`: obstacle points gained
-   * this frame; `run`: obstacles passed this round (the chime climbs with it); `alt`: Joud's
-   * height, -1 (floor) to 1 (top).
+   * this frame; `run`: obstacles passed this round (the chime climbs with it).
    */
-  frame(events: readonly GameEvent[], pointsDelta: number, run: number, alt = 0): void {
-    this.alt = alt;
+  frame(events: readonly GameEvent[], pointsDelta: number, run: number): void {
     if (events.length === 0) return;
     const p = planFrame(events, pointsDelta, this.plan);
     for (const cue of p.cues) this.play(cue, run);
@@ -145,15 +136,7 @@ export class SoundEngine {
       if (this.voiceEnds.length >= MAX_VOICES) return;
       this.voiceEnds.push(t + VOICE_LIFE);
     }
-    let rate = jitter(Math.random());
-    if (cue === 'flap') {
-      const since = this.lastFlap < 0 ? -1 : t - this.lastFlap;
-      this.lift = flapLift(this.lift, since);
-      this.lastFlap = t;
-      rate *= 1 + this.lift;
-      if (this.flapPlayer) return this.flapPlayer(k, t, rate, { alt: this.alt, since });
-    }
-    playCue(k, cue, t, this.flapVoice, rate, run);
+    playCue(k, cue, t, this.flapVoice, jitter(Math.random()), run);
   }
 
   /** Quiet tick for buttons. */
