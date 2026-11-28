@@ -111,10 +111,11 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
 ### Sound (`src/mobile/sound/`; VR keeps `src/scene/audio.ts`)
 
 - Synthesised with Web Audio: no audio files, no dependencies, no instruments. The sound world
-  is a garden: Joud's chirps, wing beats, glints, drums, and the score chime.
+  is a garden: Joud's chirps, a soft tonal flap, glints, drums, and the score chime.
 - `director.ts` maps a frame's `game.events` (plus the obstacle points gained and the obstacles
-  passed) to sounds and vibration: flap two soft wing beats (±3% pitch; the voice is a setting
-  for future flap-sound items, and the first version's blip is one), +1 the chime, which climbs
+  passed) to sounds and vibration: flap a soft rising "bwip" in pure tones, no noise (±3% pitch,
+  and quick taps lift it up to 8%; the voice is a setting for future flap-sound items: puff,
+  peep, flutter and the first version's blip), +1 the chime, which climbs
   a pentatonic scale with each point of a run as in the first version (Joud approved the climb),
   +2 the chime with glints, +3 with Joud's "twee-tweet", +5 with a trill, flower a bud opening,
   hit a soft thump with a startled chirp, new best a run of chirps, a trill and a doum. The core
