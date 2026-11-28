@@ -71,11 +71,14 @@ Safari, Node and Deno (the runtime of Supabase Edge Functions).
     import from the `play/` entry's chunk, which `model-gate.ts` leaves in an error state, so the
     gate imports `game-backdrop.ts` and hands it over. With it: `&birdScale=` (the drawn bird
     only, as in the game), `&turn=` (degrees; `bird.ts` uses −55) and `&laneY=` (stills and single
-    clips, lane units), and the `game sky`, `size` and `turn` buttons. `&bg=key` is flat magenta
-    in the same frame, for cutting the bird out. After `npm run build`,
-    `node scripts/run-ts.mjs scripts/model-tests.ts` (needs `ffmpeg`) writes the three test sheets
-    of 28 Nov 2026 (background and outline contrast, size, turn) to
-    `docs/screens/model-v2/tests/`.
+    clips, lane units), `&scroll=` (the backdrop as after that many lane units of play; 0 is
+    where it stays with effects off), and the `game sky`, `size` and `turn` buttons. `&bg=key` is
+    flat magenta in the same frame, for cutting the bird out. After `npm run build`,
+    `node scripts/run-ts.mjs scripts/model-tests.ts` (needs `ffmpeg`) writes the test sheets of
+    28 Nov 2026 to `docs/screens/model-v2/tests/`: background and outline contrast, size, turn,
+    and test 4, the backdrop pushed back (Joud's outline at three scrolls, and the box edges in
+    autoplayed game frames). `backdrop --before=<dist dir>` puts another build's pictures beside
+    this one's.
   - The game still draws `joud.glb`: v2 and its clips are only in this viewer until approved.
   - The model is built by `tools/blender/build_joud.py`, with the clips' numbers in
     `tools/blender/joud_clips.py` (Blender, run by hand; neither is a game dependency).
@@ -102,7 +105,10 @@ Everything here is render-only: `src/core` is untouched, so it never changes a r
   - **Near layer:** 3 m booths with 0.7 m round signs (plain brand discs, no logos), palms
     (4.8 m trunks, 10 fronds) at the measured spacing, and decorative string lights.
   - **Scale:** 1 m = 0.075 (far) or 0.085 (near) lane units.
-  - **Colour:** faded towards cream, so obstacles stay the most saturated thing on screen.
+  - **Colour:** faded towards cream, so obstacles stay the most saturated thing on screen, then
+    pushed back into the sky's blue (`FAR_RECEDE` 55 % and 5 % darker, `NEAR_RECEDE` 40 %), so
+    Joud's cream edges stay clear in front of the façade and the booths (28 Nov 2026: at most
+    4.4 % of his outline lost, was 31.9 %; test 4 in `scripts/model-tests.ts`).
   - **Parallax:** the layers move with the obstacles at 0.15× and 0.4× and wrap per tile.
 - **Campaign box faces** (`box-art.ts`): one canvas atlas of 4 × 4 tiles in the face's shape.
   - **Tiles:**

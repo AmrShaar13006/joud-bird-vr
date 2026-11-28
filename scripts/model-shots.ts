@@ -17,8 +17,8 @@ import { resolve } from 'node:path';
 import { type Browser, chromium, type Page } from '@playwright/test';
 import type { ModelApi, ModelInfo } from '../src/mobile/model-view';
 
-const PORT = 4182;
-const BASE = `https://localhost:${PORT}/play/?debug=1&rig=1&model=v2&ui=0`;
+export const PORT = 4182;
+const base = (port: number): string => `https://localhost:${port}/play/?debug=1&rig=1&model=v2&ui=0`;
 export const OUT = resolve('docs/screens/model-v2');
 const W = 1280;
 const H = 720;
@@ -40,8 +40,9 @@ const SHOTS = [
 
 export type ModelWindow = Window & { __joudModel?: ModelApi };
 
-export function startServer(): ChildProcess {
-  return spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], {
+/** `outDir`: another build to serve (model-tests.ts's "before" pictures), on its own port. */
+export function startServer(port = PORT, outDir?: string): ChildProcess {
+  return spawn('npx', ['vite', 'preview', '--port', String(port), '--strictPort', ...(outDir ? ['--outDir', outDir] : [])], {
     stdio: 'ignore',
     shell: process.platform === 'win32',
   });
@@ -59,7 +60,7 @@ export function launch(): Promise<Browser> {
  * `glb`: another joud-v2.glb to show in place of the built one (model:anim's "before" pictures).
  * `pixelRatio`: device pixels per CSS px (model-tests.ts renders a phone's screen at 2).
  */
-export async function openViewer(browser: Browser, width = W, height = H, glb?: string, pixelRatio = 1): Promise<Page> {
+export async function openViewer(browser: Browser, width = W, height = H, glb?: string, pixelRatio = 1, port = PORT): Promise<Page> {
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: pixelRatio, ignoreHTTPSErrors: true });
   if (glb) await page.route('**/models/joud-v2.glb', (r) => r.fulfill({ path: glb, contentType: 'model/gltf-binary' }));
   page.on('pageerror', (e) => {
@@ -68,7 +69,7 @@ export async function openViewer(browser: Browser, width = W, height = H, glb?: 
   });
   for (let i = 0; i < 40; i++) {
     try {
-      await page.goto(BASE, { waitUntil: 'load' });
+      await page.goto(base(port), { waitUntil: 'load' });
       break;
     } catch {
       await new Promise((r) => setTimeout(r, 500)); // preview server still starting

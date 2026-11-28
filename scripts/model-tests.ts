@@ -6,11 +6,15 @@
 //                  outline each background swallows
 //   2. size        the key poses at birdScale 1.0, 1.15 and 1.3, at the top, middle and bottom
 //   3. turn        the glide and the flap with the bird turned -55 (bird.ts), -45 and -40 degrees
+//   4. backdrop    the same outline measure, turned -45, at three places along the façade and the
+//                  booths; and the obstacles' edges against the backdrop in autoplayed game frames.
+//                  With --before=<dist dir>, another build's pictures and numbers beside these.
 // Usage: npm run build && node scripts/run-ts.mjs scripts/model-tests.ts   (only some: ... background turn)
 // Needs Playwright's Chromium (or MODEL_CHROMIUM, as model:shots) and ffmpeg on the PATH (as model:anim).
 //
 // Writes docs/screens/model-v2/tests/: test1_background.png and test1_contrast.json, test2_size.png
-// and test2_size.json, test3_turn.png and test3_turn.json (the numbers behind each sheet).
+// and test2_size.json, test3_turn.png and test3_turn.json, test4_backdrop.png, test4_boxes.png
+// and test4_backdrop.json (the numbers behind each sheet).
 //
 // Phone size: the screen is rendered at 2x and scaled down to 1x (lanczos), so a model unit is
 // 26 px, as on a phone. The outline measure: the bird is cut out on a flat key colour (&bg=key) in
@@ -25,7 +29,7 @@ import type { Browser, Page } from '@playwright/test';
 import { MOBILE1 } from '../src/core/ruleset';
 import { laneFrame } from '../src/mobile/game-backdrop';
 import type { ModelApi, Pose } from '../src/mobile/model-view';
-import { launch, type ModelWindow, OUT, openViewer, startServer } from './model-shots';
+import { launch, type ModelWindow, OUT, openViewer, PORT, startServer } from './model-shots';
 
 const DIR = resolve(OUT, 'tests');
 const W = 390; // a phone's screen, CSS px
@@ -473,6 +477,324 @@ async function testTurn(browser: Browser, page: Page, wide: Page): Promise<void>
   );
 }
 
+// --- test 4: the backdrop pushed back ---------------------------------------------------------------
+// Joud's outline as in test 1, now at the turn Amr picked (TEST4_TURN), at three places along the
+// façade and the booths (SCROLLS), on this build and on a "before" build (--before=<dist dir>,
+// served on BEFORE_PORT). Then the obstacles in the game itself (autoplay, effects off, one seed,
+// the clock stopped): how clearly each column's sides and gap ends stand out from what is behind.
+const TEST4_TURN = -45;
+/** Lane units the obstacles have moved: 0 is the backdrop with effects off, 6 and 12 two more places. */
+const SCROLLS = [0, 6, 12];
+const BEFORE_PORT = 4184;
+/** Game frames: a round's seed and the milliseconds of autoplay before the picture (three obstacles on screen). */
+const GAME_FRAMES = [0x5eed1234, 0x5eed1235, 0x5eed1236, 0x5eed1237].map((seed) => ({ seed, ms: 3900 }));
+const BOX_H = 0.06; // view.ts
+const BOX_SEAM = 0.004;
+/** Where each band of the backdrop ends (lane y): booths and signs below, façade and palms up to its parapet. */
+const BAND_TOP = { booths: -GAME.laneH / 2 + 3.42 * 0.085, facade: -GAME.laneH / 2 + 13.4 * 0.075 };
+type Band = 'sky' | 'facade' | 'booths';
+const bandAt = (y: number): Band => (y < BAND_TOP.booths ? 'booths' : y < BAND_TOP.facade ? 'facade' : 'sky');
+
+interface Num {
+  lostPct: number;
+  weakPct: number;
+  medianDeltaE: number;
+  pixels: number;
+}
+const num = (m: { lost: number; weak: number; median: number; pixels: number }): Num => ({
+  lostPct: +(m.lost * 100).toFixed(1),
+  weakPct: +(m.weak * 100).toFixed(1),
+  medianDeltaE: +m.median.toFixed(1),
+  pixels: m.pixels,
+});
+const note = (n: Num): string => `lost ${n.lostPct.toFixed(0)} %, weak ${n.weakPct.toFixed(0)} %, median ΔE ${n.medianDeltaE.toFixed(0)}`;
+
+/** Joud's outline on the backdrop: numbers at every scroll, pictures and maps at scroll 0. */
+async function birdOnBackdrop(page: Page): Promise<{ n: Record<string, Record<Place, Record<number, Num>>>; shots: Record<string, Record<Place, Cell>>; maps: Record<string, Record<Place, Cell>> }> {
+  const cw = 150;
+  const ch = 140;
+  const MAP_W = 84;
+  const MAP_H = 76;
+  const base = { ...common(), turn: TEST4_TURN };
+  const n: Record<string, Record<Place, Record<number, Num>>> = {};
+  const shots: Record<string, Record<Place, Cell>> = {};
+  const maps: Record<string, Record<Place, Cell>> = {};
+  for (const sc of SCROLLS) {
+    const backs = new Map<Place, string>();
+    for (const p of PLACES) backs.set(p, await capture(page, { ...base, bg: 'game', pose: 'glide', laneY: LANE_Y[p] >= 0 ? -0.86 : 0.86, scroll: sc }, 0.5));
+    for (const s of KEY_POSES) {
+      n[s.label] ??= {} as Record<Place, Record<number, Num>>;
+      shots[s.label] ??= {} as Record<Place, Cell>;
+      maps[s.label] ??= {} as Record<Place, Cell>;
+      for (const p of PLACES) {
+        const b = boxAt(rootPx(LANE_Y[p]), cw, ch);
+        const key = await capture(page, { ...base, bg: 'key', pose: s.pose, laneY: LANE_Y[p], scroll: sc }, s.t);
+        const m = measure(cropRaw(key, b), cropRaw(backs.get(p)!, b), cw * DPR, ch * DPR);
+        (n[s.label][p] ??= {})[sc] = num(m);
+        if (sc !== SCROLLS[0]) continue;
+        const shown = await capture(page, { ...base, bg: 'game', pose: s.pose, laneY: LANE_Y[p], scroll: sc }, s.t);
+        shots[s.label][p] = { label: p, png: cropPng(shown, b), w: cw, h: ch, note: note(num(m)) };
+        const [rx, ry] = rootPx(LANE_Y[p]);
+        const part: Box = { x: Math.max(0, Math.min(cw - MAP_W, Math.round(rx - b.x - MAP_W / 2))), y: Math.max(0, Math.min(ch - MAP_H, Math.round(ry - b.y - MAP_H * 0.62))), w: MAP_W, h: MAP_H };
+        maps[s.label][p] = { label: p, png: rawToPng(m.map, cw * DPR, ch * DPR, part), w: MAP_W * 4, h: MAP_H * 4 };
+      }
+    }
+  }
+  await page.evaluate(() => (window as ModelWindow).__joudModel!.set({ scroll: 0 }));
+  return { n, shots, maps };
+}
+
+interface Obstacle {
+  x: number;
+  gapY: number;
+  gap: number;
+  gap2: number;
+  gap2Y: number;
+  updraft: number;
+  flower: number;
+  flowerY: number;
+}
+interface GameState {
+  birdY: number;
+  state: string;
+  obstacles: Obstacle[];
+  flowerRadius: number;
+}
+
+/** The game on a phone after `ms` of autoplay with effects off, paused (so nothing is interpolated). */
+async function gameFrame(browser: Browser, port: number, seed: number, ms: number): Promise<{ file: string; st: GameState }> {
+  const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: DPR, ignoreHTTPSErrors: true });
+  await page.addInitScript((s) => {
+    // One seed for every round (scene/seed.ts takes it from here): the same obstacles in both builds.
+    crypto.getRandomValues = <T extends ArrayBufferView | null>(a: T): T => {
+      if (a instanceof Uint32Array) a.fill(s);
+      return a;
+    };
+  }, seed);
+  await page.clock.install({ time: 0 });
+  await page.clock.pauseAt(1000); // time moves only with runFor: the same frames on every run
+  await page.goto(`https://localhost:${port}/play/?debug=1&autoplay=1&fx=0&mute=1&tier=high`, { waitUntil: 'load' });
+  await page.addStyleTag({ content: '*{visibility:hidden!important;animation:none!important;transition:none!important}canvas{visibility:visible!important}' });
+  await page.clock.runFor(ms);
+  await page.evaluate(() => (window as unknown as { __joudGame: { suspend(): void } }).__joudGame.suspend());
+  await page.clock.runFor(100);
+  const st = await page.evaluate(() => {
+    const g = (window as unknown as { __joudGame: { bird: { y: number }; state: string; field: { pool: (Obstacle & { active: boolean })[] }; ruleset: { kinds: { flowerRadius: number } } } }).__joudGame;
+    return {
+      birdY: g.bird.y,
+      state: g.state,
+      flowerRadius: g.ruleset.kinds.flowerRadius,
+      obstacles: g.field.pool.filter((o) => o.active).map((o) => ({ x: o.x, gapY: o.gapY, gap: o.gap, gap2: o.gap2, gap2Y: o.gap2Y, updraft: o.updraft, flower: o.flower, flowerY: o.flowerY })),
+    };
+  });
+  const file = join(TMP, `${count++}.png`);
+  await page.screenshot({ path: file });
+  await page.close();
+  return { file, st };
+}
+
+interface EdgeResult {
+  bands: Record<Band, { lost: number; weak: number; des: number[] }>;
+  map: Buffer;
+}
+
+/**
+ * Each column of boxes: its left and right sides and the end at the gap. At every sample (2x px)
+ * the box's colour 2 to 5 px inside the edge is compared (ΔE 1976) with the backdrop 2 to 5 px
+ * outside it, each averaged over a few pixels along the edge. Seams between boxes, the bird, the
+ * flowers, the updraft lines and the screen's edges are left out.
+ */
+function boxEdges(rgb: Buffer, st: GameState): EdgeResult {
+  const w = W * DPR;
+  const h = H * DPR;
+  const px = LANE_PX * DPR;
+  const sx = (x: number) => (W / 2 + x * LANE_PX) * DPR;
+  const sy = (y: number) => (H / 2 - (y - FRAME.cy) * LANE_PX) * DPR;
+  const top = GAME.laneH / 2;
+  const half = GAME.pipeWidth / 2;
+  const bands: EdgeResult['bands'] = { sky: { lost: 0, weak: 0, des: [] }, facade: { lost: 0, weak: 0, des: [] }, booths: { lost: 0, weak: 0, des: [] } };
+  const map = Buffer.alloc(w * h * 3);
+  for (let i = 0; i < w * h * 3; i++) map[i] = Math.round(255 - (255 - rgb[i]) * 0.35);
+  const columns: { x: number; y0: number; y1: number; gapEnd: number; obstacle: Obstacle }[] = [];
+  for (const o of st.obstacles) {
+    let upperY = o.gapY;
+    let upper = o.gap;
+    let lowerY = o.gapY;
+    let lower = o.gap;
+    if (o.gap2 > 0) {
+      if (o.gap2Y > o.gapY) {
+        upperY = o.gap2Y;
+        upper = o.gap2;
+      } else {
+        lowerY = o.gap2Y;
+        lower = o.gap2;
+      }
+      columns.push({ x: o.x, y0: lowerY + lower / 2, y1: upperY - upper / 2, gapEnd: NaN, obstacle: o });
+    }
+    columns.push({ x: o.x, y0: upperY + upper / 2, y1: top, gapEnd: upperY + upper / 2, obstacle: o });
+    columns.push({ x: o.x, y0: -top, y1: lowerY - lower / 2, gapEnd: lowerY - lower / 2, obstacle: o });
+  }
+  const birdR = 0.075 * px; // the drawn bird and its wings, with a margin
+  const avoid = (X: number, Y: number): boolean => {
+    if (Math.hypot(X - sx(GAME.birdX), Y - sy(st.birdY)) < birdR) return true;
+    for (const o of st.obstacles) if (o.flower === 1 && Math.hypot(X - sx(o.x), Y - sy(o.flowerY)) < st.flowerRadius * 1.6 * px) return true;
+    for (const c of columns) if (X >= sx(c.x - half) - 0.5 && X <= sx(c.x + half) - 0.5 && Y >= sy(c.y1) - 0.5 && Y <= sy(c.y0) - 0.5) return true;
+    return X < 0 || X >= w || Y < 0 || Y >= h || X < sx(-GAME.laneW / 2) + 2 || X > sx(GAME.laneW / 2) - 2;
+  };
+  const mean = (X0: number, Y0: number, dx: number, dy: number, ax: number, ay: number): number[] | null => {
+    // pixels 2..5 px from the edge along (dx, dy), and -1..1 along the edge (ax, ay)
+    const a = [0, 0, 0];
+    let k = 0;
+    for (let d = 2; d <= 5; d++)
+      for (let t = -1; t <= 1; t++) {
+        const X = Math.round(X0 + dx * d + ax * t);
+        const Y = Math.round(Y0 + dy * d + ay * t);
+        if (X < 0 || Y < 0 || X >= w || Y >= h) return null;
+        const j = (Y * w + X) * 3;
+        for (let c = 0; c < 3; c++) a[c] += rgb[j + c];
+        k++;
+      }
+    return a.map((v) => v / k);
+  };
+  const sample = (X: number, Y: number, dx: number, dy: number, laneY: number): void => {
+    // (dx, dy) points out of the box
+    for (let d = 2; d <= 5; d++) if (avoid(X + dx * d, Y + dy * d)) return;
+    const inside = mean(X, Y, -dx, -dy, dy, dx);
+    const outside = mean(X, Y, dx, dy, dy, dx);
+    if (!inside || !outside) return;
+    const e = deltaE(inside, outside);
+    const b = bands[bandAt(laneY)];
+    b.des.push(e);
+    if (e < LOST) b.lost++;
+    else if (e < WEAK) b.weak++;
+    const col = e < LOST ? [214, 40, 40] : e < WEAK ? [240, 160, 0] : [30, 150, 80];
+    for (let r = -1; r <= 1; r++)
+      for (let q = -1; q <= 1; q++) {
+        const XX = Math.round(X + dx * 3.5 + q);
+        const YY = Math.round(Y + dy * 3.5 + r);
+        if (XX >= 0 && YY >= 0 && XX < w && YY < h) for (let c = 0; c < 3; c++) map[(YY * w + XX) * 3 + c] = col[c];
+      }
+  };
+  for (const c of columns) {
+    const seams: number[] = []; // lane y of the seams, from the gap edge outwards
+    const from = Number.isNaN(c.gapEnd) ? c.y0 : c.gapEnd;
+    const dir = from === c.y0 ? 1 : -1;
+    for (let d = BOX_H; d < c.y1 - c.y0; d += BOX_H) seams.push(from + dir * (d - BOX_SEAM / 2));
+    const nearSeam = (y: number): boolean => seams.some((s) => Math.abs(sy(s) - sy(y)) < 4 + BOX_SEAM * px);
+    const xl = sx(c.x - half);
+    const xr = sx(c.x + half);
+    const lead = c.obstacle.updraft > 0; // the updraft's lines run beside the leading (+x) side
+    for (let Y = Math.ceil(sy(c.y1)) + 4; Y <= Math.floor(sy(c.y0)) - 4; Y += 3) {
+      const y = FRAME.cy - (Y / DPR - H / 2) / LANE_PX;
+      if (nearSeam(y)) continue;
+      sample(Math.ceil(xl), Y, -1, 0, y);
+      if (!lead) sample(Math.ceil(xr) - 1, Y, 1, 0, y);
+    }
+    if (!Number.isNaN(c.gapEnd)) {
+      const Yend = sy(c.gapEnd);
+      const out = c.gapEnd === c.y0 ? 1 : -1; // the gap is below an upper column (screen y grows down)
+      for (let X = Math.ceil(xl) + 5; X <= Math.floor(xr) - 5; X += 3) sample(X, out > 0 ? Math.floor(Yend) - 1 : Math.ceil(Yend), 0, out, c.gapEnd);
+    }
+  }
+  return { bands, map };
+}
+
+/** As Num, plus the ΔE that the weakest 5 % of the samples fall under. */
+const summary = (b: { lost: number; weak: number; des: number[] }): Num & { p5DeltaE: number } => {
+  const d = [...b.des].sort((p, q) => p - q);
+  return {
+    lostPct: +((b.lost / Math.max(1, d.length)) * 100).toFixed(1),
+    weakPct: +((b.weak / Math.max(1, d.length)) * 100).toFixed(1),
+    medianDeltaE: d.length ? +d[d.length >> 1].toFixed(1) : 0,
+    p5DeltaE: d.length ? +d[Math.floor(d.length * 0.05)].toFixed(1) : 0,
+    pixels: d.length,
+  };
+};
+
+async function testBackdrop(browser: Browser, after: Page, before: Page | null, beforePort: number | null): Promise<void> {
+  const builds = before ? (['before', 'after'] as const) : (['after'] as const);
+  const pages = { before, after };
+  const bird: Partial<Record<'before' | 'after', Awaited<ReturnType<typeof birdOnBackdrop>>>> = {};
+  for (const b of builds) bird[b] = await birdOnBackdrop(pages[b]!);
+  // the boxes in the game
+  const boxes: Partial<Record<'before' | 'after', Record<Band, ReturnType<typeof summary>>>> = {};
+  const frames: Partial<Record<'before' | 'after', { file: string; map: Buffer }[]>> = {};
+  for (const b of builds) {
+    const total: EdgeResult['bands'] = { sky: { lost: 0, weak: 0, des: [] }, facade: { lost: 0, weak: 0, des: [] }, booths: { lost: 0, weak: 0, des: [] } };
+    frames[b] = [];
+    for (const f of GAME_FRAMES) {
+      const { file, st } = await gameFrame(browser, b === 'before' ? beforePort! : PORT, f.seed, f.ms);
+      const r = boxEdges(cropRaw(file, { x: 0, y: 0, w: W, h: H }), st);
+      for (const k of Object.keys(total) as Band[]) {
+        total[k].lost += r.bands[k].lost;
+        total[k].weak += r.bands[k].weak;
+        total[k].des.push(...r.bands[k].des);
+      }
+      frames[b]!.push({ file, map: r.map });
+    }
+    boxes[b] = { sky: summary(total.sky), facade: summary(total.facade), booths: summary(total.booths) };
+  }
+  const worst = (b: 'before' | 'after', p: Place, pose?: string): Num => {
+    const all = Object.entries(bird[b]!.n).filter(([k]) => !pose || k === pose).flatMap(([, v]) => Object.values(v[p]));
+    return all.reduce((a, c) => (c.lostPct > a.lostPct ? c : a));
+  };
+  writeFileSync(
+    resolve(DIR, 'test4_backdrop.json'),
+    `${JSON.stringify(
+      {
+        note:
+          `Joud's outline against the backdrop as in test 1 (CIELAB ΔE 1976, 2x pixels; lost: ΔE < ${LOST}; weak: ${LOST} to ${WEAK}), turned ${TEST4_TURN}°, ` +
+          `at backdrop scroll ${SCROLLS.join(', ')} (lane units). Boxes: the sides and gap ends of every column in ${GAME_FRAMES.length} game frames ` +
+          `(autoplay, effects off, seeds ${GAME_FRAMES.map((f) => f.seed).join(', ')}, ${GAME_FRAMES[0].ms} ms), by what is behind them: booths (lane y < ${BAND_TOP.booths.toFixed(3)}), façade and palms (< ${BAND_TOP.facade.toFixed(3)}), sky.`,
+        bird: Object.fromEntries(builds.map((b) => [b, bird[b]!.n])),
+        worstPerPlace: Object.fromEntries(builds.map((b) => [b, Object.fromEntries(PLACES.map((p) => [p, worst(b, p)]))])),
+        boxes,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  // sheet 1: the bird, phone size first
+  const cols = PLACES.flatMap((p) => builds.map((b) => `${p}, ${b}`));
+  const phone = KEY_POSES.map((s) => ({ label: s.label, cells: PLACES.flatMap((p) => builds.map((b) => bird[b]!.shots[s.label][p])) }));
+  const mapRows = KEY_POSES.map((s) => ({ label: s.label, cells: PLACES.flatMap((p) => builds.map((b) => bird[b]!.maps[s.label][p])) }));
+  const worstLine = builds
+    .map((b) => `<b>${b}</b>: worst lost over all poses and the ${SCROLLS.length} scrolls: ${PLACES.map((p) => `${p} ${worst(b, p).lostPct.toFixed(1)} %`).join(', ')}`)
+    .join('<br>');
+  await writeSheet(
+    browser,
+    resolve(DIR, 'test4_backdrop.png'),
+    'Test 4: Joud on the backdrop, before and after pushing it back',
+    `As test 1, on a 390 × 844 phone in the game camera’s frame, turned ${TEST4_TURN}°, leaning ${PRESENT_TILT}°, birdScale 1. ` +
+      `Pictures at scroll 0 (the backdrop with effects off); the numbers cover scrolls ${SCROLLS.join(', ')} as well.<br>${worstLine}`,
+    grid('Phone size (1x, 26 px per model unit), scroll 0', cols, phone) + grid('Outline maps (4x): red lost, amber weak, green clear', cols, mapRows),
+  );
+  // sheet 2: the boxes in the game
+  const boxNote = (b: 'before' | 'after') =>
+    `${b}: ${(['sky', 'facade', 'booths'] as Band[]).map((k) => `${k === 'facade' ? 'façade' : k} lost ${boxes[b]![k].lostPct.toFixed(1)} %, weak ${boxes[b]![k].weakPct.toFixed(1)} %, median ΔE ${boxes[b]![k].medianDeltaE.toFixed(0)}, weakest 5 % under ${boxes[b]![k].p5DeltaE.toFixed(0)}`).join('; ')}`;
+  const screenRows = builds.map((b) => ({
+    label: b,
+    cells: frames[b]!.map((f, i) => ({ label: `seed ${i + 1}`, png: cropPng(f.file, { x: 0, y: 0, w: W, h: H }), w: W, h: H })),
+  }));
+  const edgeRows = builds.map((b) => ({
+    label: b,
+    cells: frames[b]!.map((f, i) => ({
+      label: `seed ${i + 1}`,
+      png: ffmpeg(['-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${W * DPR}x${H * DPR}`, '-i', '-', '-vf', `scale=${W}:${H}:flags=area`, '-f', 'image2pipe', '-vcodec', 'png', '-'], f.map),
+      w: W,
+      h: H,
+    })),
+  }));
+  await writeSheet(
+    browser,
+    resolve(DIR, 'test4_boxes.png'),
+    'Test 4: the boxes against the backdrop, before and after',
+    `The game itself on a 390 × 844 phone (autoplay, effects off, four seeds, the clock stopped after ${GAME_FRAMES[0].ms} ms; the page’s text hidden). ` +
+      `Each column’s sides and gap ends: the box just inside the edge against the backdrop just outside it (ΔE 1976).<br>${builds.map(boxNote).join('<br>')}`,
+    grid('Phone size (1x)', GAME_FRAMES.map((_f, i) => `seed ${i + 1}`), screenRows) + grid('Edge samples: red lost (ΔE < 10), amber weak (10 to 20), green clear', GAME_FRAMES.map((_f, i) => `seed ${i + 1}`), edgeRows),
+  );
+}
+
 export async function main(args: string[] = []): Promise<number> {
   if (spawnSync('ffmpeg', ['-version']).status !== 0) {
     console.error('[tests] ffmpeg is not on the PATH: it crops and scales the screenshots. Install it and run again.');
@@ -481,6 +803,7 @@ export async function main(args: string[] = []): Promise<number> {
   const only = args.filter((a) => !a.startsWith('-'));
   const want = (name: string): boolean => only.length === 0 || only.includes(name);
   const server = startServer();
+  let beforeServer: ReturnType<typeof startServer> | null = null;
   const browser = await launch();
   TMP = mkdtempSync(join(tmpdir(), 'joud-tests-'));
   try {
@@ -491,6 +814,17 @@ export async function main(args: string[] = []): Promise<number> {
     mkdirSync(DIR, { recursive: true });
     if (want('background')) await testBackground(browser, page);
     if (want('size')) await testSize(browser, page);
+    if (want('backdrop')) {
+      // --before=<dist dir>: the same pictures from another build, side by side
+      const beforeDir = args.find((a) => a.startsWith('--before='))?.slice('--before='.length);
+      let before: Page | null = null;
+      if (beforeDir) {
+        beforeServer = startServer(BEFORE_PORT, resolve(beforeDir));
+        before = await openViewer(browser, W, H, undefined, DPR, BEFORE_PORT);
+        await before.evaluate(() => (window as ModelWindow).__joudModel!.set({ manual: true, ui: false, ref: false, status: false }));
+      }
+      await testBackdrop(browser, page, before, beforeDir ? BEFORE_PORT : null);
+    }
     if (want('turn')) {
       const wide = await openViewer(browser, WIDE, H, undefined, DPR);
       await wide.evaluate(() => (window as ModelWindow).__joudModel!.set({ manual: true, ui: false, ref: false, status: false }));
@@ -500,6 +834,7 @@ export async function main(args: string[] = []): Promise<number> {
   } finally {
     await browser.close();
     server.kill();
+    beforeServer?.kill();
     rmSync(TMP, { recursive: true, force: true });
   }
 }
